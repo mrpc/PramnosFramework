@@ -292,6 +292,26 @@ final class Conversations
         return $names;
     }
 
+    /**
+     * Many conversations by id, as {@see get()} shows one — only the slugged ones (`channel`,
+     * `private`) carry an `image`; a dm or a group has none of its own.
+     *
+     * @param list<int> $ids
+     * @return array<int, array<string, mixed>>
+     */
+    public static function many(array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+        $rows = [];
+        foreach (self::db()->queryBuilder()->table('chat.conversations')->whereIn('conversationid', $ids)->getAllOrFail() as $row) {
+            $rows[(int) $row['conversationid']] = self::row($row);
+        }
+
+        return $rows;
+    }
+
     /** Whether an account reads a conversation: it is in it, it is open, or it reads them all. */
     public static function canRead(int $id, object $user): bool
     {

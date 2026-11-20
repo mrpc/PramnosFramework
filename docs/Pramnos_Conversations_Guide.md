@@ -281,6 +281,11 @@ an already-stored body. A `#word` that is not a channel's slug stays as plain te
 before this existed — `#type:id` (a reference, {@see Messages::refs()}) is unaffected, since its
 colon stops the slug match before it gets there.
 
+Either form shows the conversation's own picture (`Images::url()`) where it has one, in place of
+the `#`/`🔒` — not beside it, the same way the sidebar already shows it. A conversation with no
+picture of its own keeps the `#`/`🔒` text exactly as before. `<#id>` on a conversation with no
+slug at all (a dm, a group) has no picture either, and keeps falling back to the people in it.
+
 **Handles** mention many at once, as Slack's (`Pramnos\Conversations\Handles`). None tells the
 writer, nor somebody inactive (see [Access](#access)):
 

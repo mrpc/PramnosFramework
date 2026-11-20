@@ -19,12 +19,13 @@ namespace Pramnos\Conversations;
  * | `| a | b |` then `|---|:-:|`     | a table — `:-:` centred, `--:` to the right; it scrolls when wide |
  * | a table drawn with lines, `┌─┬─┐ │ a │ b │` or `+---+ | a |` | the same table |
  * | `<@48211>`                      | @ and the person's name                 |
- * | `<#48211>`, a bare `#slug`      | a link to the conversation, `#slug` (🔒 instead of `#` for a private one) |
+ * | `<#48211>`, a bare `#slug`      | a link to the conversation, with its own picture where it has one — `#slug` or `🔒 slug` otherwise |
  * | `@here`, `@channel`, `@everyone`, a group's `@name` (and `@all`, `@online`) | the mention, marked ({@see Handles}) |
  * | `#user:48211`, `NAN-6212`       | a reference, marked for a card ({@see Messages::refs()}) |
  * | `:smile:`                       | the emoji, where the shortcode is known |
  *
- * No HTML of the writer's own, no images: a picture is a file sent with the message.
+ * No HTML of the writer's own, and no picture of the writer's own: the only `<img>` this ever
+ * produces is a conversation's own icon on its link, resolved server-side, never from the text.
  */
 final class Markdown
 {
@@ -50,9 +51,12 @@ final class Markdown
      * The HTML of a message.
      *
      * @param callable(int): ?string $name A person's name by account id, for `<@id>`; null when unknown
-     * @param ?callable(int): ?string $conversation A conversation's `#slug` by id, for `<#id>`; null when unknown
-     * @param ?callable(string): ?array{id: int, slug: string, kind?: string} $channelBySlug A conversation by a bare `#slug`
-     *        in the written text itself — not only `<#id>` — one call per `#word` found; null when unknown
+     * @param ?callable(int): ?array<string, mixed> $conversation A conversation by id, for `<#id>`; its name as
+     *        already shown (`#slug`/`🔒 slug`/a dm's people), plus `slug`/`kind`/`image` where it has them, for
+     *        its own picture; null when unknown
+     * @param ?callable(string): ?array{id: int, slug: string, kind?: string, image?: ?string} $channelBySlug
+     *        A conversation by a bare `#slug` in the written text itself — not only `<#id>` — one call per
+     *        `#word` found; null when unknown
      */
     public static function render(string $text, callable $name, ?callable $conversation = null, ?callable $channelBySlug = null): string
     {
@@ -252,8 +256,8 @@ final class Markdown
      * One line's inline marks.
      *
      * @param callable(int): ?string $name
-     * @param ?callable(int): ?string $conversation
-     * @param ?callable(string): ?array{id: int, slug: string, kind?: string} $channelBySlug
+     * @param ?callable(int): ?array<string, mixed> $conversation
+     * @param ?callable(string): ?array{id: int, slug: string, kind?: string, image?: ?string} $channelBySlug
      */
     private static function inline(string $text, callable $name, ?callable $conversation = null, ?callable $channelBySlug = null): string
     {
@@ -277,10 +281,16 @@ final class Markdown
         }, $text);
         // `<#id>` — a conversation link, same token shape as `<@id>` but an <a>, not a hover-card span:
         // the app already navigates by `location.hash = '#/c/' + id`, so a bare anchor click is enough.
+        // Its own picture, where it has one, takes the place of the `#`/`🔒` prefix rather than sitting
+        // beside it; a conversation with no slug (a dm, a group) has no picture of its own either, so
+        // this always falls back to its already-built name (`#slug`/`🔒 slug`/the people in it).
         $text = (string) preg_replace_callback('/<#(\d+)>/', static function (array $m) use ($keep, $conversation): string {
-            $slug = $conversation !== null ? $conversation((int) $m[1]) : null;
+            $channel = $conversation !== null ? $conversation((int) $m[1]) : null;
+            $icon    = self::channelIcon($channel);
+            $slug    = $channel['slug'] ?? null;
+            $label   = $icon !== '' && $slug !== null ? $slug : ($channel['name'] ?? ('#' . $m[1]));
 
-            return $keep('<a class="pf-conv-channel-ref" href="#/c/' . (int) $m[1] . '">' . htmlspecialchars($slug ?? ('#' . $m[1]), ENT_QUOTES, 'UTF-8') . '</a>');
+            return $keep('<a class="pf-conv-channel-ref" href="#/c/' . (int) $m[1] . '">' . $icon . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . '</a>');
         }, $text);
         // A bare `#slug`, so an already-sent message — never rewritten in place — links too, not only a
         // new one composed into `<#id>`. Left as plain text when the slug resolves to nothing (`#type:id`'s
@@ -288,10 +298,13 @@ final class Markdown
         if ($channelBySlug !== null) {
             $text = (string) preg_replace_callback('/(?<![\w#])#([\p{L}\p{N}_-]+)(?!:)/u', static function (array $m) use ($keep, $channelBySlug): string {
                 $channel = $channelBySlug($m[1]);
+                if ($channel === null) {
+                    return $m[0];
+                }
+                $icon  = self::channelIcon($channel);
+                $label = ($icon === '' ? (($channel['kind'] ?? null) === 'private' ? '🔒 ' : '#') : '') . $channel['slug'];
 
-                return $channel === null ? $m[0]
-                    : $keep('<a class="pf-conv-channel-ref" href="#/c/' . $channel['id'] . '">'
-                        . (($channel['kind'] ?? null) === 'private' ? '🔒 ' : '#') . htmlspecialchars($channel['slug'], ENT_QUOTES, 'UTF-8') . '</a>');
+                return $keep('<a class="pf-conv-channel-ref" href="#/c/' . $channel['id'] . '">' . $icon . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . '</a>');
             }, $text);
         }
 
@@ -335,5 +348,13 @@ final class Markdown
     {
         return '<a href="' . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . '" target="_blank" rel="noopener noreferrer nofollow">'
             . htmlspecialchars($text, ENT_QUOTES, 'UTF-8') . '</a>';
+    }
+
+    /** A conversation's own picture as an `<img>`, in place of a channel link's `#`/`🔒`; '' when it has none. */
+    private static function channelIcon(?array $channel): string
+    {
+        $image = $channel['image'] ?? null;
+
+        return $image === null || $image === '' ? '' : '<img class="pf-conv-channel-icon" src="' . htmlspecialchars($image, ENT_QUOTES, 'UTF-8') . '">';
     }
 }

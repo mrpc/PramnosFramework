@@ -24,26 +24,33 @@ final class MarkdownTest extends TestCase
         return $id === 5 ? 'Μαρία Κ.' : null;
     }
 
-    /** Conversation names for `<#id>`: two known (one private), others not. */
-    private static function convoNameOf(int $id): ?string
+    /**
+     * A conversation by `<#id>`: three known (one private, one with its own picture), others not.
+     *
+     * @return ?array<string, mixed>
+     */
+    private static function convoById(int $id): ?array
     {
         return match ($id) {
-            9       => '#general',
-            12      => '🔒 directors',
+            9       => ['name' => '#general', 'id' => 9, 'slug' => 'general', 'kind' => 'channel', 'image' => null],
+            12      => ['name' => '🔒 directors', 'id' => 12, 'slug' => 'directors', 'kind' => 'private', 'image' => null],
+            15      => ['name' => '#financial', 'id' => 15, 'slug' => 'financial', 'kind' => 'system', 'image' => '/img/financial.png'],
+            20      => ['name' => 'Ελένη Σ., Μαρία Κ.'],
             default => null,
         };
     }
 
     /**
-     * A conversation by a bare `#slug`: two known (one private), others not.
+     * A conversation by a bare `#slug`: three known (one private, one with its own picture), others not.
      *
-     * @return ?array{id: int, slug: string, kind: string}
+     * @return ?array{id: int, slug: string, kind: string, image: ?string}
      */
     private static function convoBySlug(string $slug): ?array
     {
         return match (mb_strtolower($slug)) {
-            'general'   => ['id' => 9, 'slug' => 'general', 'kind' => 'channel'],
-            'directors' => ['id' => 12, 'slug' => 'directors', 'kind' => 'private'],
+            'general'   => ['id' => 9, 'slug' => 'general', 'kind' => 'channel', 'image' => null],
+            'directors' => ['id' => 12, 'slug' => 'directors', 'kind' => 'private', 'image' => null],
+            'financial' => ['id' => 15, 'slug' => 'financial', 'kind' => 'system', 'image' => '/img/financial.png'],
             default     => null,
         };
     }
@@ -111,9 +118,14 @@ final class MarkdownTest extends TestCase
             'an unknown conversation link' => ['<#123>', '<p><a class="pf-conv-channel-ref" href="#/c/123">#123</a></p>'],
             // A private conversation shows 🔒 instead of #, as Slack does for a private channel.
             'a private conversation link' => ['<#12>', '<p><a class="pf-conv-channel-ref" href="#/c/12">🔒 directors</a></p>'],
+            // A conversation with its own picture shows it in place of #/🔒, not beside it.
+            'a conversation link with a picture' => ['<#15>', '<p><a class="pf-conv-channel-ref" href="#/c/15"><img class="pf-conv-channel-icon" src="/img/financial.png">financial</a></p>'],
+            // <#id> on a conversation with no slug (a dm) falls back to its already-built name, unchanged.
+            'a conversation link to a dm' => ['<#20>', '<p><a class="pf-conv-channel-ref" href="#/c/20">Ελένη Σ., Μαρία Κ.</a></p>'],
             // A bare #slug links too — an already-sent message, never rewritten, still gets this on re-render.
             'a bare channel link'   => ['δες #general', '<p>δες <a class="pf-conv-channel-ref" href="#/c/9">#general</a></p>'],
             'a bare private channel link' => ['δες #directors', '<p>δες <a class="pf-conv-channel-ref" href="#/c/12">🔒 directors</a></p>'],
+            'a bare channel link with a picture' => ['δες #financial', '<p>δες <a class="pf-conv-channel-ref" href="#/c/15"><img class="pf-conv-channel-icon" src="/img/financial.png">financial</a></p>'],
             'an unknown bare channel' => ['#ανύπαρκτο μένει κείμενο', '<p>#ανύπαρκτο μένει κείμενο</p>'],
             'everybody, online'     => ['@all @online me@all.gr', '<p><span class="pf-conv-mention pf-conv-mention-all">@all</span> <span class="pf-conv-mention pf-conv-mention-online">@online</span> me@all.gr</p>'],
             // The colon stops a bare-slug match before it reaches "user:48211", so the #type:id reference
@@ -134,7 +146,7 @@ final class MarkdownTest extends TestCase
         $name = self::nameOf(...);
 
         // Act
-        $html = Markdown::render($written, $name, self::convoNameOf(...), self::convoBySlug(...));
+        $html = Markdown::render($written, $name, self::convoById(...), self::convoBySlug(...));
 
         // Assert
         $this->assertSame($shown, $html);
