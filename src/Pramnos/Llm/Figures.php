@@ -32,6 +32,10 @@ namespace Pramnos\Llm;
  * result's rows carry both: each on its own is only ever checked against *some* subset of its
  * own column, so a count that rightly sums three categories and an amount that sums only two of
  * them both pass alone ({@see inconsistentPairs()}).
+ *
+ * A fenced code block's own numbers (a chart's JSON, say) are read exactly, as JSON, never by
+ * the prose regex the rest of the check uses — a compact array has no thousands-grouping marks
+ * to tell its comma-separated elements apart from a single long number ({@see fencedUntraced()}).
  */
 final class Figures
 {
@@ -44,6 +48,9 @@ final class Figures
 
     /** A list's own numbering, at the start of a line: "1. ", "2) ". */
     private const NUMBERING = '~^\s*\d+[.)]\s~mu';
+
+    /** A fenced code block: ` ```lang\n...\n``` ` or bare ` ```...``` `. */
+    private const FENCED = '~```[^\n`]*\n(.*?)\n?```~su';
 
     /**
      * Past this many figures, only values and totals are checked, not every pair of them.
@@ -83,8 +90,17 @@ final class Figures
         foreach (self::numbers($asked) as [$readings]) {
             array_push($said, ...array_column($readings, 0));
         }
-        $text  = (string) preg_replace(self::NUMBERING, '', $answer);
-        $out   = [];
+        // A fenced code block (a chart's JSON, say) is read the same way a tool's own JSON
+        // result is — exact values, no grouping marks to misread — never by the number regex
+        // below: a compact array ("data":[4676,2111,658,...]) is written with no thousands
+        // grouping at all, and that regex, built for how people write numbers in prose, glues
+        // its comma-separated elements into one bogus figure. FW-573: reported live from a
+        // chart block, 16 real figures flagged as invented over one real typo elsewhere, which
+        // cost more than the typo itself — the answer was rejected so widely that the model
+        // abandoned an already-correct tool result for improvised SQL instead.
+        $out  = self::fencedUntraced($answer, $known, $said);
+        $text = (string) preg_replace(self::NUMBERING, '', $answer);
+        $text = (string) preg_replace(self::FENCED, ' ', $text);
         foreach (self::numbers($text) as [$readings, $written, $percent]) {
             foreach ($readings as [$value, $decimals]) {
                 if (self::isYear($written) || self::near($value, $decimals, $said) || self::traced($value, $decimals, $percent, $known)) {
@@ -124,6 +140,59 @@ final class Figures
         }
 
         return array_values(array_unique($out));
+    }
+
+    /**
+     * The numbers inside every fenced code block of a text that none of the known figures bears
+     * out — each block's own JSON read exactly, the same way {@see figures()} reads a tool's
+     * result, with no thousands-grouping ambiguity to misparse. A block that is not valid JSON
+     * is left to the ordinary prose check instead.
+     *
+     * @param list<float> $known
+     * @param list<float> $said
+     * @return list<string>
+     */
+    private static function fencedUntraced(string $text, array $known, array $said): array
+    {
+        preg_match_all(self::FENCED, $text, $blocks);
+        $out = [];
+        foreach ($blocks[1] as $block) {
+            $data = json_decode($block, true);
+            if (!is_array($data)) {
+                continue;
+            }
+            $values = [];
+            self::leaves($data, $values);
+            foreach ($values as $value) {
+                // Both sides are exact floats decoded from JSON, never hand-typed prose: a tight
+                // tolerance, not the looser one a written number's own precision needs.
+                if (!self::near($value, 6, $said) && !self::traced($value, 6, false, $known)) {
+                    $out[] = $value === (float) (int) $value ? (string) (int) $value : rtrim(rtrim(sprintf('%.6f', $value), '0'), '.');
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Every numeric leaf of a JSON structure, no computed totals — the block itself is what is
+     * being checked against the known figures, not a trusted source of new ones to check
+     * everything else against ({@see walk()}, which adds a list's or column's own total, is for
+     * the other direction).
+     *
+     * @param array<mixed> $node
+     * @param list<float>  $out
+     */
+    private static function leaves(array $node, array &$out): void
+    {
+        foreach ($node as $value) {
+            if (is_int($value) || is_float($value) || (is_string($value) && is_numeric($value))) {
+                $out[] = (float) $value;
+            } elseif (is_array($value)) {
+                self::leaves($value, $out);
+            }
+        }
     }
 
     /**

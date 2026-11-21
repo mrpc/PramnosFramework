@@ -268,4 +268,28 @@ class FiguresTest extends TestCase
         $this->assertSame(['523,20'], $named, '14 sums first+first_pillar+repeat; 523,20 sums only two of those three');
         $this->assertSame([], $none, '641,20 sums the same three rows 14 does');
     }
+
+    /**
+     * FW-573: a chart's data, written as a compact JSON array with no spaces after its commas
+     * ("data":[4676,2111,...]), has no thousands-grouping marks at all to tell its elements
+     * apart — the prose number regex, built for how people write a number by hand, glued eight
+     * of them into one bogus figure and named it, even though every one of them was a real
+     * value the tool returned. Read as JSON instead, each element traces on its own, and a
+     * genuinely wrong one inside the same block is still caught.
+     */
+    public function testAFencedChartsOwnNumbersAreReadAsJsonNotProse(): void
+    {
+        // Arrange — the chart repeats the report's own figures; one is changed to a real typo
+        $report  = '{"before":[4676,2111,658],"after":[9289,558,474]}';
+        $honest  = "Here you go:\n```chart\n{\"data\":[4676,2111,658,9289,558,474]}\n```\n";
+        $invented = "Here you go:\n```chart\n{\"data\":[4676,2111,658,9289,558,999]}\n```\n";
+
+        // Act
+        $clean = Figures::untraced($honest, [$report]);
+        $wrong = Figures::untraced($invented, [$report]);
+
+        // Assert
+        $this->assertSame([], $clean, 'every element is a real value from the report, read as JSON');
+        $this->assertSame(['999'], $wrong, '474 became 999; the other five still trace on their own');
+    }
 }

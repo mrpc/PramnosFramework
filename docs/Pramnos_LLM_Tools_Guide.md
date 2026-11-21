@@ -119,6 +119,9 @@ A conversation's message keeps `corrected: figures` for the review.
   and in the call's arguments.
 - A JSON result is read as data. Any other text is read by its numbers alone, so it gets no
   column totals.
+- A fenced code block in the answer itself (a chart's JSON, say) is read as JSON too, exactly —
+  never by the prose number check, which would glue a compact array's comma-separated elements
+  ("data":[4676,2111,...], no spaces, no thousands grouping) into one bogus figure.
 - An MCP tool says it with `public function numeric(): bool`. `Tools::fromMcp()` and
   `ToolRegistry::registerMcp()` read it. The analyst's `metrics`, `visits`, `llm_spend` and `sql`
   are marked (`Analyst::FIGURES`).
