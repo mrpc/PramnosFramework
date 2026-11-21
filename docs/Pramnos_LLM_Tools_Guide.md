@@ -121,7 +121,12 @@ A conversation's message keeps `corrected: figures` for the review.
   column totals.
 - A fenced code block in the answer itself (a chart's JSON, say) is read as JSON too, exactly —
   never by the prose number check, which would glue a compact array's comma-separated elements
-  ("data":[4676,2111,...], no spaces, no thousands grouping) into one bogus figure.
+  ("data":[4676,2111,...], no spaces, no thousands grouping) into one bogus figure. A block that
+  is not valid JSON keeps going through the ordinary check, same as if it had no fence at all.
+- A markdown table cell that is nothing but a bare, comma-separated list of plain integers
+  ("4676,2111,658,...") is read the same way, one number at a time — left alone where every group
+  after the first happens to be exactly 3 digits, since that is as honestly one large formatted
+  number as it is a list.
 - An MCP tool says it with `public function numeric(): bool`. `Tools::fromMcp()` and
   `ToolRegistry::registerMcp()` read it. The analyst's `metrics`, `visits`, `llm_spend` and `sql`
   are marked (`Analyst::FIGURES`).

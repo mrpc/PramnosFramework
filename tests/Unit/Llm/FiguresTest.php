@@ -292,4 +292,52 @@ class FiguresTest extends TestCase
         $this->assertSame([], $clean, 'every element is a real value from the report, read as JSON');
         $this->assertSame(['999'], $wrong, '474 became 999; the other five still trace on their own');
     }
+
+    /**
+     * FW-527: the same comma-gluing as the chart block (FW-573), reported again in a markdown
+     * table cell this time — a cell that is nothing but "4676,2111,658,559,474" has no
+     * thousands-grouping marks to tell its five values apart from one. Each is read on its own
+     * instead, a genuinely wrong one among them still caught; left alone where every group after
+     * the first happens to be exactly 3 digits, since that is indistinguishable from one real
+     * grouped number without more context.
+     */
+    public function testATableCellsBareNumberListIsReadOneAtATimeNotAsOneNumber(): void
+    {
+        // Arrange
+        $report = '{"values":[4676,2111,658,559,474]}';
+        $honest = "| Region | Values |\n| A | 4676,2111,658,559,474 |";
+        $wrong  = "| Region | Values |\n| A | 4676,2111,658,559,999 |";
+        // Every group after the first is exactly 3 digits — as honestly a big grouped number as
+        // it is a list, so left to the ordinary check rather than risk splitting a real one apart.
+        $ambiguous = "| Region | Values |\n| A | 100,200,300 |";
+
+        // Act
+        $clean    = Figures::untraced($honest, [$report]);
+        $named    = Figures::untraced($wrong, [$report]);
+        $left     = Figures::untraced($ambiguous, ['{}']);
+
+        // Assert
+        $this->assertSame([], $clean, 'every one of the five values is real, read on its own');
+        $this->assertSame(['999'], $named, '474 became 999; the other four still trace on their own');
+        $this->assertSame(['100,200,300'], $left, 'ambiguous (100,200,300 could be one number); left to the ordinary check');
+    }
+
+    /**
+     * A fenced block that is not JSON (a SQL snippet, say) is not blanked out along with the
+     * JSON ones — its own numbers still go through the ordinary prose check, same as if there
+     * were no fence around them at all.
+     */
+    public function testANonJsonFencedBlockIsStillCheckedByTheOrdinaryCheck(): void
+    {
+        // Arrange
+        $answer = "```sql\nSELECT * FROM t WHERE id = 41\n```";
+
+        // Act
+        $untraced = Figures::untraced($answer, ['{"id":41}']);
+        $named    = Figures::untraced("```sql\nSELECT * FROM t WHERE id = 99\n```", ['{"id":41}']);
+
+        // Assert
+        $this->assertSame([], $untraced, '41 is a real figure, still checked despite the fence');
+        $this->assertSame(['99'], $named, 'a made-up id inside a non-JSON fence is still named');
+    }
 }

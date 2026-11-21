@@ -52,6 +52,12 @@ final class Figures
     /** A fenced code block: ` ```lang\n...\n``` ` or bare ` ```...``` `. */
     private const FENCED = '~```[^\n`]*\n(.*?)\n?```~su';
 
+    /** A markdown table row — pipes at both ends; its cells are between them. */
+    private const TABLE_ROW = '~^[ \t]*\|(.+)\|[ \t]*$~mu';
+
+    /** A cell with nothing in it but a bare, comma-separated list of plain integers, two or more. */
+    private const NUMERIC_LIST_CELL = '~^\s*\d+(?:\s*,\s*\d+)+\s*$~u';
+
     /**
      * Past this many figures, only values and totals are checked, not every pair of them.
      * ponytail: the pairs are O(n²); a result this large is a table nobody sums by hand anyway.
@@ -98,9 +104,11 @@ final class Figures
         // chart block, 16 real figures flagged as invented over one real typo elsewhere, which
         // cost more than the typo itself — the answer was rejected so widely that the model
         // abandoned an already-correct tool result for improvised SQL instead.
-        $out  = self::fencedUntraced($answer, $known, $said);
         $text = (string) preg_replace(self::NUMBERING, '', $answer);
-        $text = (string) preg_replace(self::FENCED, ' ', $text);
+        [$text, $fenced] = self::fencedUntraced($text, $known, $said);
+        $out  = $fenced;
+        [$text, $tableListed] = self::tableListsUntraced($text, $known, $said);
+        array_push($out, ...$tableListed);
         foreach (self::numbers($text) as [$readings, $written, $percent]) {
             foreach ($readings as [$value, $decimals]) {
                 if (self::isYear($written) || self::near($value, $decimals, $said) || self::traced($value, $decimals, $percent, $known)) {
@@ -150,16 +158,16 @@ final class Figures
      *
      * @param list<float> $known
      * @param list<float> $said
-     * @return list<string>
+     * @return array{0: string, 1: list<string>} The text with every JSON block blanked, and what did not trace
      */
     private static function fencedUntraced(string $text, array $known, array $said): array
     {
-        preg_match_all(self::FENCED, $text, $blocks);
-        $out = [];
-        foreach ($blocks[1] as $block) {
-            $data = json_decode($block, true);
+        $out  = [];
+        $text = (string) preg_replace_callback(self::FENCED, static function (array $m) use (&$out, $known, $said): string {
+            $data = json_decode($m[1], true);
             if (!is_array($data)) {
-                continue;
+                // Not JSON: left whole, numbers and all, to the ordinary prose check below.
+                return $m[0];
             }
             $values = [];
             self::leaves($data, $values);
@@ -170,9 +178,57 @@ final class Figures
                     $out[] = $value === (float) (int) $value ? (string) (int) $value : rtrim(rtrim(sprintf('%.6f', $value), '0'), '.');
                 }
             }
-        }
 
-        return $out;
+            return str_repeat(' ', strlen($m[0]));
+        }, $text);
+
+        return [$text, $out];
+    }
+
+    /**
+     * A markdown table cell that is nothing but a bare, comma-separated list of plain integers
+     * ("4676,2111,658,...") is read one number at a time — the same reasoning
+     * {@see fencedUntraced()} applies to a chart's JSON: no thousands-grouping marks tell a
+     * programmatic list's elements apart from one very large formatted number, and the prose
+     * check glues them into one. FW-527: reported live from exactly that, in a table cell this
+     * time rather than a fenced block.
+     *
+     * Left alone where every group after the first happens to be exactly 3 digits —
+     * indistinguishable from a real grouped number without more context ("100,200,300" could
+     * honestly be either), so left to the ordinary check instead rather than risk splitting a
+     * genuine one apart.
+     *
+     * @param list<float> $known
+     * @param list<float> $said
+     * @return array{0: string, 1: list<string>} The text with every such cell blanked, and what did not trace
+     */
+    private static function tableListsUntraced(string $text, array $known, array $said): array
+    {
+        $out  = [];
+        $text = (string) preg_replace_callback(self::TABLE_ROW, static function (array $row) use (&$out, $known, $said): string {
+            $cells = explode('|', $row[1]);
+            foreach ($cells as &$cell) {
+                if (preg_match(self::NUMERIC_LIST_CELL, $cell) !== 1) {
+                    continue;
+                }
+                $parts   = array_map('trim', explode(',', $cell));
+                $grouped = array_filter(array_slice($parts, 1), static fn (string $p): bool => strlen($p) !== 3) === [];
+                if ($grouped) {
+                    continue;
+                }
+                foreach ($parts as $part) {
+                    $value = (float) $part;
+                    if (!self::near($value, 0, $said) && !self::traced($value, 0, false, $known)) {
+                        $out[] = $part;
+                    }
+                }
+                $cell = str_repeat(' ', strlen($cell));
+            }
+
+            return '|' . implode('|', $cells) . '|';
+        }, $text);
+
+        return [$text, $out];
     }
 
     /**
