@@ -66,6 +66,26 @@ class AnalystPromptTest extends LlmTestCase
         $this->assertStringNotContainsString('Use figures, not people', $theirs, 'replaced, not added to');
         $this->assertStringContainsString('never try to recover them', $theirs, 'masking is not part of the rule');
         $this->assertStringContainsString('info string chart', $default, 'the analyst is told how to chart');
+        $this->assertStringContainsString('info string map', $default, 'the analyst is told how to map');
+    }
+
+    /** An application turns mapping off the same way it would charting: return '' from the hook. */
+    public function testAnApplicationTurnsMapsOff(): void
+    {
+        // Arrange
+        $noMaps = new class extends AnalystAssistant {
+            protected function maps(): string
+            {
+                return '';
+            }
+        };
+
+        // Act
+        $prompt = $this->prompt($noMaps);
+
+        // Assert
+        $this->assertStringNotContainsString('info string map', $prompt);
+        $this->assertStringContainsString('info string chart', $prompt, 'charts are unaffected');
     }
 
     /**

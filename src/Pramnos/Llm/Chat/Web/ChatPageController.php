@@ -67,6 +67,8 @@ class ChatPageController extends Controller
 
         $doc        = \Pramnos\Framework\Factory::getDocument();
         $doc->title = 'Ask AI';
+        // Where the application has it: an answer may draw a ```map block ({@see \Pramnos\Llm\Chat\Markdown::map()}).
+        $doc->enqueueIfRegistered('leaflet');
 
         $view                = $this->getView('chat');
         $view->conversations = $chat->list();

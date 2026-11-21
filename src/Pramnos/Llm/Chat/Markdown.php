@@ -114,19 +114,24 @@ final class Markdown
         for ($i = 0; $i < $count; $i++) {
             $line = $lines[$i];
 
-            // A fenced block, kept as it is — or a chart, when it says so and is one.
+            // A fenced block, kept as it is — or a chart or a map, when it says so and is one.
             if (preg_match('/^\s*```\s*(\w*)/', $line, $fence) === 1) {
                 $flush();
                 $code = [];
                 for ($i++; $i < $count && preg_match('/^\s*```/', $lines[$i]) !== 1; $i++) {
                     $code[] = $lines[$i];
                 }
-                $block  = '<pre><code>' . self::escape(implode("\n", $code)) . '</code></pre>';
-                $chart  = strtolower($fence[1]) === 'chart' ? self::chart(implode("\n", $code)) : null;
-                $html[] = $chart === null
-                    ? $block
-                    : '<div class="pf-chart" data-pf-chart="' . self::escape((string) json_encode($chart, JSON_UNESCAPED_UNICODE)) . '"'
-                        . ' role="img" aria-label="' . self::escape((string) ($chart['title'] ?? 'Chart')) . '">' . $block . '</div>';
+                $block = '<pre><code>' . self::escape(implode("\n", $code)) . '</code></pre>';
+                $chart = strtolower($fence[1]) === 'chart' ? self::chart(implode("\n", $code)) : null;
+                $map   = strtolower($fence[1]) === 'map' ? self::map(implode("\n", $code)) : null;
+                $html[] = match (true) {
+                    $chart !== null => '<div class="pf-chart" data-pf-chart="' . self::escape((string) json_encode($chart, JSON_UNESCAPED_UNICODE)) . '"'
+                        . ' role="img" aria-label="' . self::escape((string) ($chart['title'] ?? 'Chart')) . '">' . $block . '</div>',
+                    $map !== null => '<div class="pf-report-map" data-pf-map="' . self::escape((string) json_encode($map['points'], JSON_UNESCAPED_UNICODE)) . '"'
+                        . ' style="height:320px" hidden role="img" aria-label="' . self::escape($map['title'] !== '' ? $map['title'] : 'Map') . '"></div>'
+                        . self::mapTable($map['points']),
+                    default => $block,
+                };
                 continue;
             }
 
@@ -269,6 +274,67 @@ final class Markdown
         . 'Use line or area for a series over time, bar or hbar to compare, pie or doughnut only for parts of one whole '
         . '(one series, a few slices). Numbers only in data, one per label. Keep the figures in a table or the text as well, '
         . 'so they can be read and copied.';
+
+    /**
+     * A ```map block's spec, when it is one a page can draw; null keeps it as code. One JSON
+     * object: `points`, each `{lat, lng, label, value, text}` — `value` (its marker's size,
+     * larger for a bigger figure) and `text` (shown on hover) default to 1 and `label` where
+     * left out — with `title` if wanted. See {@see MAPS}.
+     *
+     * Read the same way {@see \Pramnos\Metrics\Widgets\MapWidget} already draws a metric by
+     * place: a circle over OpenStreetMap, sized by its figure, where the application has
+     * Leaflet — a plain table of place and figure otherwise, same as {@see render()} draws it.
+     *
+     * @return array{title?: string, points: list<array{lat: float, lng: float, label: string, value: float, text: string}>}|null
+     */
+    public static function map(string $json): ?array
+    {
+        $spec = json_decode($json, true);
+
+        if (!is_array($spec) || !is_array($spec['points'] ?? null) || $spec['points'] === []) {
+            return null;
+        }
+
+        $points = [];
+        foreach ($spec['points'] as $point) {
+            if (!is_array($point) || !is_numeric($point['lat'] ?? null) || !is_numeric($point['lng'] ?? null)
+                || !is_string($point['label'] ?? null) || $point['label'] === ''
+                || ($point['value'] ?? null) !== null && !is_numeric($point['value'])
+                || ($point['text'] ?? null) !== null && !is_string($point['text'])) {
+                return null;
+            }
+            $points[] = [
+                'lat'   => (float) $point['lat'],
+                'lng'   => (float) $point['lng'],
+                'label' => $point['label'],
+                'value' => is_numeric($point['value'] ?? null) ? (float) $point['value'] : 1.0,
+                'text'  => ($point['text'] ?? '') !== '' ? (string) $point['text'] : $point['label'],
+            ];
+        }
+
+        return ['title' => (string) ($spec['title'] ?? ''), 'points' => $points];
+    }
+
+    /**
+     * What a model is told so that it maps: when, and in what shape. An assistant adds it to its
+     * prompt — the analyst's does, where the application has Leaflet; `''` turns it off.
+     */
+    public const MAPS = 'When figures have real places with coordinates, you may add a map: a fenced code block with '
+        . 'the info string map, holding one JSON object: {"title": "…", "points": [{"lat": number, "lng": number, '
+        . '"label": "…", "value": number, "text": "…"}]}. label names the place; value sizes its marker (bigger for a '
+        . 'bigger figure, 1 if left out); text is shown on hover, the label if left out. Keep the figures in a table '
+        . 'or the text as well, so they can be read and copied.';
+
+    /** A ```map block's points, as the fallback table beside its (possibly undrawn) map. */
+    private static function mapTable(array $points): string
+    {
+        $rows = '';
+        foreach ($points as $point) {
+            $rows .= '<tr><th scope="row">' . self::escape($point['label']) . '</th><td style="text-align:right">' . self::escape($point['text']) . '</td></tr>';
+        }
+
+        return '<table class="pf-report table table-sm" data-pf-map-table><tbody>' . $rows . '</tbody></table>';
+    }
 
     /** @return list<string> A table row's cells */
     private static function cells(string $line): array

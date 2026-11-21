@@ -58,6 +58,7 @@ class AnalystAssistant extends BaseAssistant
                 ? 'You change nothing in the installation; the only tools that write are the ones that schedule your tasks and reports, whose times are in ' . $zone . '.'
                 : 'You cannot change anything: no tool writes.')
             . (($charts = trim($this->charts())) !== '' ? "\n\n" . $charts : '')
+            . (($maps = trim($this->maps())) !== '' ? "\n\n" . $maps : '')
             . ($about !== '' ? "\n\nAbout this application: " . $about : '')
             . $this->sharedRule($turn)
             . "\n\nAnswer in the language the question was asked in, and write anything you say while you call tools in that language too.";
@@ -126,6 +127,16 @@ class AnalystAssistant extends BaseAssistant
     protected function charts(): string
     {
         return \Pramnos\Llm\Chat\Markdown::CHARTS;
+    }
+
+    /**
+     * When and how to map — {@see \Pramnos\Llm\Chat\Markdown::MAPS}, which the conversation page
+     * draws where the application has Leaflet, a plain table otherwise. '' for an analyst that
+     * never maps.
+     */
+    protected function maps(): string
+    {
+        return \Pramnos\Llm\Chat\Markdown::MAPS;
     }
 
     /**

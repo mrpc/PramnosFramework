@@ -128,4 +128,35 @@ class MarkdownTest extends TestCase
         $this->assertStringStartsWith('<pre><code>', $plain, 'only a block that says chart');
         $this->assertNull(Markdown::chart('{"type": "bar", "labels": ["a"], "series": []}'), 'a chart of nothing');
     }
+
+    /**
+     * FW-567: a ```map block, drawn the same way as a ```chart one — a holder carrying its
+     * points, with a readable table beside it for a page without Leaflet (or without script at
+     * all); one that is not a map stays code, so nothing a model writes is lost.
+     */
+    public function testAMapBlock(): void
+    {
+        // Arrange
+        $spec = '{"title": "By <town>", "points": [{"lat": 40.64, "lng": 22.94, "label": "<A>", "value": 5, "text": "5 bookings"}]}';
+
+        // Act
+        $map    = Markdown::toHtml("```map\n" . $spec . "\n```");
+        $noText = Markdown::toHtml('```map
+{"points": [{"lat": 1, "lng": 2, "label": "B"}]}
+```');
+        $broken = Markdown::toHtml("```map\n{\"points\": [{\"lat\": \"x\", \"lng\": 2, \"label\": \"B\"}]}\n```");
+        $empty  = Markdown::toHtml("```map\n{\"points\": []}\n```");
+        $plain  = Markdown::toHtml("```json\n" . $spec . "\n```");
+
+        // Assert
+        $this->assertStringStartsWith('<div class="pf-report-map" data-pf-map="[{&quot;lat&quot;:40.64', $map);
+        $this->assertStringContainsString('hidden role="img" aria-label="By &lt;town&gt;"', $map, 'hidden until Leaflet draws it, escaped like everything else');
+        $this->assertStringContainsString('<th scope="row">&lt;A&gt;</th><td style="text-align:right">5 bookings</td>', $map, 'a readable table beside the (possibly undrawn) map');
+        $this->assertStringContainsString('&quot;value&quot;:1', $noText, 'value defaults to 1');
+        $this->assertStringContainsString('<th scope="row">B</th><td style="text-align:right">B</td>', $noText, 'text defaults to the label');
+        $this->assertStringStartsWith('<pre><code>', $broken, 'a coordinate that is not a number stays code');
+        $this->assertStringStartsWith('<pre><code>', $empty, 'so does a map with nothing on it');
+        $this->assertStringStartsWith('<pre><code>', $plain, 'only a block that says map');
+        $this->assertNull(Markdown::map('{"points": []}'), 'a map of nowhere');
+    }
 }

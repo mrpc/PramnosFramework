@@ -85,27 +85,13 @@ class MapWidget extends ReportWidget
         foreach ($points as $point) {
             $rows .= '<tr><th scope="row">' . $e($point['label']) . '</th><td style="text-align:right">' . $e($point['text']) . '</td></tr>';
         }
-        $this->enqueueMap();
-
-        return '<div class="pf-report-map" data-pf-map="' . $e((string) json_encode($points, JSON_UNESCAPED_UNICODE)) . '" style="height:320px" hidden></div>'
-            . '<table class="pf-report table table-sm" data-pf-map-table><tbody>' . $rows . '</tbody></table>';
-    }
-
-    /** Leaflet on the page, where the application registered it. */
-    private function enqueueMap(): void
-    {
         try {
-            $doc = \Pramnos\Framework\Factory::getDocument();
-            foreach (['leaflet'] as $handle) {
-                if (is_object($doc) && method_exists($doc, 'isScriptRegistered') && $doc->isScriptRegistered($handle)) {
-                    $doc->enqueueScript($handle);
-                    if (method_exists($doc, 'enqueueStyle')) {
-                        $doc->enqueueStyle($handle);
-                    }
-                }
-            }
+            \Pramnos\Framework\Factory::getDocument()->enqueueIfRegistered('leaflet');
         } catch (\Throwable) {
             // No document: the table stands alone.
         }
+
+        return '<div class="pf-report-map" data-pf-map="' . $e((string) json_encode($points, JSON_UNESCAPED_UNICODE)) . '" style="height:320px" hidden></div>'
+            . '<table class="pf-report table table-sm" data-pf-map-table><tbody>' . $rows . '</tbody></table>';
     }
 }

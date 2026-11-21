@@ -285,7 +285,12 @@ $doc->enqueueScript('slimbox2');   // no src — resolved from the registration
 **An unregistered handle with no source throws** — and it throws when the queue is *processed*,
 not when `enqueueScript()` is called, so a missing registration reaches production as a broken
 page rather than a broken template. `isScriptRegistered()` and `isStyleRegistered()` answer
-before you commit to it.
+before you commit to it — or call `enqueueIfRegistered('handle')` once, for a library the
+application may or may not have installed (Leaflet, a chart library an application's own
+`project:install` chose not to include): it enqueues whichever of the script and the style was
+registered, and does nothing for a handle nobody registered, so the caller never has to branch on
+it. The chat page uses it for Leaflet, where a fenced `map` block needs it
+({@see `\Pramnos\Llm\Chat\Markdown::MAPS`}).
 
 Registered by default: `jquery`, `jquery-ui`, the `datatables` family, `jquery-tmpl`,
 `iframe-transport`, the `jquery-fileupload` family, `bootstrap-datepicker`, `jquery-inputmask`

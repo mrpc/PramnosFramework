@@ -1441,6 +1441,25 @@ class Document extends \Pramnos\Framework\Base
     }
 
     /**
+     * A library an application may or may not have installed (Leaflet, say): enqueued where it
+     * was registered (whichever of script, style, or both — {@see isScriptRegistered()},
+     * {@see isStyleRegistered()}), left alone otherwise. A caller that draws something needing
+     * one of these calls this instead of assuming it is there, the same way a page without it
+     * falls back to a plain table.
+     *
+     * @param string $handle Script and/or style handle, as registered
+     */
+    public function enqueueIfRegistered(string $handle): void
+    {
+        if ($this->isScriptRegistered($handle)) {
+            $this->enqueueScript($handle);
+        }
+        if ($this->isStyleRegistered($handle)) {
+            $this->enqueueStyle($handle);
+        }
+    }
+
+    /**
      * A safe way to register a CSS style file for later use with enqueueStyle().
      * @param string $handle Name of the stylesheet.
      * @param string $src URL to the stylesheet.

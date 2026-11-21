@@ -452,6 +452,42 @@ class DocumentTest extends TestCase
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // enqueueIfRegistered
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * A library an application may or may not have installed (Leaflet, say): enqueued where the
+     * application registered it, whether as a script, a style, or both — never where it only
+     * registered one of the two; left alone entirely for a handle nobody registered, so a caller
+     * can call this unconditionally without checking first.
+     */
+    public function testEnqueueIfRegisteredEnqueuesWhicheverWasRegistered(): void
+    {
+        // Arrange — a script and a style under one handle, a script alone under another
+        $this->document->registerScript('leaflet', 'js/leaflet.js');
+        $this->document->registerStyle('leaflet', 'css/leaflet.css');
+        $this->document->registerScript('script-only', 'js/only.js');
+
+        // Act
+        $this->document->enqueueIfRegistered('leaflet');
+        $this->document->enqueueIfRegistered('script-only');
+        $this->document->enqueueIfRegistered('nobody-registered-this');
+
+        ob_start();
+        $this->document->renderJs();
+        $js = ob_get_clean();
+        ob_start();
+        $this->document->renderCss();
+        $css = ob_get_clean();
+
+        // Assert
+        $this->assertStringContainsString('src="js/leaflet.js"', $js);
+        $this->assertStringContainsString('href="css/leaflet.css"', $css);
+        $this->assertStringContainsString('src="js/only.js"', $js, 'a script-only handle still enqueues its script');
+        $this->assertStringNotContainsString('nobody-registered-this', $js . $css);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // registerScript / registerStyle with non-array deps
     // ─────────────────────────────────────────────────────────────────────────
 

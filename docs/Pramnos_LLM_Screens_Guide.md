@@ -363,6 +363,43 @@ The analyst's prompt tells the model when to chart and to keep the figures as te
 `Markdown::CHARTS`, through `AnalystAssistant::charts()`. Return '' from it for an analyst that
 never charts. A chat assistant of your own adds `Markdown::CHARTS` to its prompt to chart.
 
+### Maps
+
+An answer can carry a map the same way — a fenced block with the info string `map` and one JSON
+object — for figures that have real places.
+
+````markdown
+```map
+{"title": "Bookings by town", "points": [
+  {"lat": 40.64, "lng": 22.94, "label": "Thessaloniki", "value": 12, "text": "12 bookings"},
+  {"lat": 37.98, "lng": 23.73, "label": "Athens", "value": 30, "text": "30 bookings"}
+]}
+```
+````
+
+The fields:
+
+- `points`, each `lat`, `lng` and `label`; `value` sizes its marker (bigger for a bigger figure,
+  1 if left out) and `text` is shown on hover (`label` if left out).
+- `title` is optional.
+
+How it is drawn, the same way `report.map` already draws a metric by place
+({@see `\Pramnos\Metrics\Widgets\MapWidget`}):
+
+- `Chat\Markdown::toHtml()` turns a block that is a map into `<div data-pf-map="…">`, hidden, next
+  to a plain table of each place and its figure. A block that is not a map stays code.
+- `pf-utils.js`'s existing `drawMaps()` draws it with Leaflet over OpenStreetMap, where the
+  application has it — a circle per point, sized by its figure — and un-hides the div in its
+  place of the table. Without Leaflet the div stays hidden and the table alone is what shows.
+- The chat page enqueues Leaflet itself, where the application registered it
+  (`Document::enqueueIfRegistered('leaflet')`, from `ChatPageController::display()`) — nothing to
+  wire up in an application that already has it from `project:install leaflet`.
+
+The analyst's prompt tells the model when to map — `Markdown::MAPS`, through
+`AnalystAssistant::maps()`. Return '' from it for an analyst that never maps. A chat assistant of
+your own adds `Markdown::MAPS` to its prompt to map, and calls `Document::enqueueIfRegistered('leaflet')`
+once on its own page the same way.
+
 Example questions sit above a new conversation, and a click puts one in the box, to send or to
 change first:
 
