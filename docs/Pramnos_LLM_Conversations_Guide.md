@@ -456,6 +456,12 @@ the model passes its id as `replaces` and the memory is rewritten — the latest
 than two memories disagreeing. In code, `Memory::keep($kind, $content, $replaces, $about,
 $source)`; `remember()` is the same for a new one.
 
+**Kept, corrected and forgotten go to the changelog.** `Memory` is not a `Model`, so it raises its
+own `ChangelogWriter::event()` on `pramnos.changelog_events` (entity `chat_memory`, `itemid` the
+memory's id): `model` or `learned` for a new one depending on how it was told, `corrected` for a
+correction, `forgotten` for `forget()`/`forgetShared()`. The details carry only the memory's kind
+and topic — never its own words, which may be personal and are already the memory itself.
+
 **Learning, in batches** — on by default; `'llm' => ['chat' => ['memory' => ['learn' => false]]]`
 turns it off. A short call reads what the person said beside what is remembered, and answers a list
 of changes: keep what they *stated* about themselves, their role or their work, or how they want

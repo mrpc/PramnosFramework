@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Pramnos\Llm\Chat;
 
+use Pramnos\Changelog\ChangelogWriter;
 use Pramnos\Llm\CallLog;
 
 /**
@@ -93,6 +94,9 @@ class Memory
 
     /** How many memories one review call reads. */
     public const REVIEW_BATCH = 40;
+
+    /** The changelog's entity: {@see ChangelogWriter::event()}, never carrying `content` (rule 14, FW-575). */
+    public const ENTITY = 'chat_memory';
 
     private ?bool $mayShare = null;
 
@@ -233,6 +237,7 @@ class Memory
                 return 'Error: there is no such memory to correct.';
             }
             (clone $query)->where('memory_id', $replaces)->update($row);
+            ChangelogWriter::event(self::ENTITY, $replaces, 'corrected', array_filter(['kind' => $row['kind'], 'topic' => $this->topic]), 0, null, $this->scope->userId);
 
             return 'Corrected memory ' . $replaces . '.';
         }
@@ -240,8 +245,10 @@ class Memory
             return 'Error: the memory is full (' . ($shared ? self::sharedMax() : self::max()) . ' entries). Forget one that no longer holds, then remember this.';
         }
         $this->table('assist.chat_memory')->insert(($shared ? ['userid' => self::SHARED] + $this->scope->columns() : $this->scope->columns()) + $row + ['created_at' => $stamp]);
+        $id = (int) \Pramnos\Framework\Factory::getDatabase()->getInsertId();
+        ChangelogWriter::event(self::ENTITY, $id, $source === 'learned' ? 'learned' : 'model', array_filter(['kind' => $row['kind'], 'topic' => $this->topic, 'shared' => $shared ?: null]), 0, null, $this->scope->userId);
 
-        return 'Remembered as memory ' . (int) \Pramnos\Framework\Factory::getDatabase()->getInsertId() . '.';
+        return 'Remembered as memory ' . $id . '.';
     }
 
     /**
@@ -511,6 +518,7 @@ class Memory
             return false;
         }
         $query->delete();
+        ChangelogWriter::event(self::ENTITY, $memoryId, 'forgotten', ['shared' => true], 0, null, $this->scope->userId);
 
         return true;
     }
@@ -561,6 +569,7 @@ class Memory
         }
 
         $query->delete();
+        ChangelogWriter::event(self::ENTITY, $memoryId, 'forgotten', [], 0, null, $this->scope->userId);
 
         return true;
     }
