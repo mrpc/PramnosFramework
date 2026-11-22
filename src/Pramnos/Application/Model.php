@@ -202,6 +202,15 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
     }
 
     /**
+     * {@see EmitsModelChanges::restoreFromChangelog()}: writes the reversed fields through
+     * this model's own `_save()`, exactly like any other update.
+     */
+    protected function _restoreSave(): void
+    {
+        $this->_save();
+    }
+
+    /**
      * Class constructor. Sets the model name and the database table
      * @param \Pramnos\Application\Controller Current controller
      * @param string $name Name of model - used automatic table discover

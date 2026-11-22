@@ -49,6 +49,15 @@ class User extends \Pramnos\Framework\Base implements
     }
 
     /**
+     * {@see EmitsModelChanges::restoreFromChangelog()}: writes the reversed fields through
+     * this user's own `save()`, exactly like any other update.
+     */
+    protected function _restoreSave(): void
+    {
+        $this->save();
+    }
+
+    /**
      * Snapshot of the savable column values as they were after the last {@see load()},
      * so {@see _save()} can tell `emitChange()`/`creating`/`updating` what actually changed
      * rather than reporting every field as new on every save — the same job

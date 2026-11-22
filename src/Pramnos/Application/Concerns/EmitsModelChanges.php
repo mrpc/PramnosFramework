@@ -290,6 +290,100 @@ trait EmitsModelChanges
     }
 
     /**
+     * Reverse one recorded update ({@see \Pramnos\Changelog\ChangelogWriter::TABLE}) back onto
+     * this already-loaded record, through the model's own save — so validation and the usual
+     * hooks run like any other update, and the restore becomes its own fresh `updated` row
+     * rather than a silent write underneath the log that describes it.
+     *
+     * `$logid` must name an `updated` row belonging to this exact record — its own entity and
+     * key, read the same way {@see emitChange()} reads them — or nothing changes and this
+     * returns `false`. **Optimistic guard:** refused when the record changed again after
+     * `$logid`, unless the caller already knows that later state and names its own logid as
+     * `$ifLogid` — restoring onto a state nobody looked at is how a legitimate later edit gets
+     * silently undone instead of surfaced as a conflict.
+     *
+     * Only reaches as far back as `pramnos.changelog`'s own retention (30 days by default —
+     * "Writing changes down" in the Change Feed guide): an older row is gone with the table's
+     * own TimescaleDB chunk, and this returns `false` the same as any other row it cannot find.
+     *
+     * **Authorization is the caller's.** This writes whatever it is handed, on the caller's own
+     * say-so — whoever reaches for it checks the operator may change this record first, same as
+     * any other write it could have taken.
+     *
+     * @return bool Whether anything was restored
+     */
+    public function restoreFromChangelog(int $logid, ?int $ifLogid = null): bool
+    {
+        $entity = $this->changeEntity !== '' ? $this->changeEntity : $this->changeDefaultEntity();
+        $key    = $this->changeKey();
+        if ($key === null || $key === '') {
+            return false;
+        }
+
+        $table    = \Pramnos\Changelog\ChangelogWriter::TABLE;
+        $database = \Pramnos\Database\Database::getInstance();
+        $row      = $database->queryBuilder()->table($table)->where('logid', $logid)->first();
+        if (!$row || (int) $row->numRows === 0
+            || (string) $row->fields['op'] !== \Pramnos\Event\ModelChange::UPDATED
+            || (string) $row->fields['entity'] !== $entity
+            || (string) $row->fields['itemid'] !== (string) $key
+        ) {
+            return false;
+        }
+
+        // The record's own newest row — not necessarily $logid, which may be one the caller
+        // already means to go past (named as $ifLogid): a restore onto anything else is stale.
+        $newest = $database->queryBuilder()->table($table)
+            ->where('entity', $entity)->where('itemid', (string) $key)
+            ->orderBy('logid', 'desc')->first();
+        $newestId = $newest && (int) $newest->numRows > 0 ? (int) $newest->fields['logid'] : null;
+        if ($newestId !== ($ifLogid ?? $logid)) {
+            return false;
+        }
+
+        $changes = \Pramnos\Changelog\ChangelogReader::decode($row->fields)['changes'] ?? null;
+        if (!is_array($changes) || $changes === []) {
+            return false;
+        }
+        foreach ($changes as $field => $diff) {
+            $this->$field = is_array($diff) ? ($diff['old'] ?? null) : null;
+        }
+        $this->_restoreSave();
+
+        return true;
+    }
+
+    /**
+     * How {@see restoreFromChangelog()} actually writes the reversed fields back —
+     * {@see \Pramnos\Application\Model::_save()} or {@see \Pramnos\User\User::save()}: the one
+     * thing that differs between the two classes this trait serves, the same idea as
+     * {@see changeKey()}.
+     *
+     * Not `abstract`, unlike {@see changeKey()}/{@see changeDefaultEntity()}/
+     * {@see changeTable()}: this trait is usable directly by a class outside the framework
+     * (the docblock above names exactly two users, not an exhaustive list), and an abstract
+     * method here would fatal at load for any of them that does not override it — the same
+     * failure CLAUDE.md's BC rule describes for a changed signature. `save()` or `_save()`,
+     * whichever the host class actually has, covers both framework users without asking a
+     * third one for anything new; only a host with neither has to override this.
+     */
+    protected function _restoreSave(): void
+    {
+        if (method_exists($this, 'save')) {
+            $this->save();
+
+            return;
+        }
+        if (method_exists($this, '_save')) {
+            $this->_save();
+
+            return;
+        }
+
+        throw new \LogicException(static::class . ' must override _restoreSave() to use restoreFromChangelog() — it has neither save() nor _save().');
+    }
+
+    /**
      * Run something without it announcing itself on the feed.
      *
      * For an operation whose physical shape is not its meaning — a soft delete, which is

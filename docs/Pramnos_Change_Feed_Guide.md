@@ -360,6 +360,34 @@ Retune any of them from `app.php` without editing the framework:
 ],
 ```
 
+### Reversing a recorded update
+
+A model whose `$emitChanges` is on can undo one of its own recorded updates, through its own
+save — not a raw `UPDATE` underneath the log that describes it:
+
+```php
+$user = new User($userId);
+$user->restoreFromChangelog($logid);           // the newest change — an operator's "undo"
+$user->restoreFromChangelog($logid, $ifLogid);  // deliberately past a later state already known
+```
+
+`restoreFromChangelog(int $logid, ?int $ifLogid = null): bool` reads one `pramnos.changelog` row,
+reverses its `old`/`new` fields back onto the record, and saves — `_save()` for a `Model`, `save()`
+for `User`, whichever the class actually has — so validation and the usual hooks run like any
+other update, and the restore becomes its own fresh `updated` row.
+
+- **Only an `updated` row of this exact record** applies; a `created` row (nothing to go back to)
+  or one belonging to a different entity/key does nothing, and returns `false`.
+- **Optimistic guard.** Refused when the record changed again after `$logid` — restoring onto a
+  state nobody looked at is how a legitimate later edit gets silently undone. Pass the record's
+  current newest logid as `$ifLogid` to go further back on purpose, past a later state the caller
+  already knows about.
+- **Only as far back as the table's own retention** (30 days by default, above) — an older row is
+  gone with its TimescaleDB chunk, the same as any other row this table no longer has.
+- **Authorization is the caller's.** This writes whatever it is handed, on the caller's own say-so
+  — check the operator may change this record before calling it, the same as any other write it
+  could have taken.
+
 ### Recording an event a diff cannot express
 
 ```php

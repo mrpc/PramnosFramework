@@ -278,10 +278,14 @@ class ChangelogReader
      * depending on the driver, so a caller that trusted one would break on the other
      * backend — and only there.
      *
+     * Public so {@see \Pramnos\Application\Concerns\EmitsModelChanges::restoreFromChangelog()}
+     * reads one `pramnos.changelog` row's `changes` the same defended way, rather than
+     * repeating this same two-backend quirk for a single row fetched outside a `listing()`.
+     *
      * @param  array<string, mixed> $row
      * @return array<string, mixed>
      */
-    protected static function decode(array $row): array
+    public static function decode(array $row): array
     {
         foreach (['changes', 'details', 'context'] as $column) {
             if (isset($row[$column]) && is_string($row[$column])) {
