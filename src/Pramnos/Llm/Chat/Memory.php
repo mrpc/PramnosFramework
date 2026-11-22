@@ -233,11 +233,14 @@ class Memory
             + ($this->topic !== null && $this->hasColumn('topic') ? ['topic' => $this->topic] : []);
 
         if ($replaces !== null) {
-            if ((clone $query)->where('memory_id', $replaces)->count() === 0) {
+            $was = (clone $query)->where('memory_id', $replaces)->first();
+            if (!$was || (int) $was->numRows === 0) {
                 return 'Error: there is no such memory to correct.';
             }
             (clone $query)->where('memory_id', $replaces)->update($row);
-            ChangelogWriter::event(self::ENTITY, $replaces, 'corrected', array_filter(['kind' => $row['kind'], 'topic' => $this->topic]), 0, null, $this->scope->userId);
+            ChangelogWriter::event(self::ENTITY, $replaces, 'corrected', array_filter([
+                'kind' => $row['kind'], 'topic' => $this->topic, 'old' => (string) $was->fields['content'], 'new' => $row['content'],
+            ]), 0, null, $this->scope->userId);
 
             return 'Corrected memory ' . $replaces . '.';
         }
@@ -514,11 +517,12 @@ class Memory
             return false;
         }
         $query = $this->sharedQuery()->where('memory_id', $memoryId);
-        if ((clone $query)->count() === 0) {
+        $was   = (clone $query)->first();
+        if (!$was || (int) $was->numRows === 0) {
             return false;
         }
         $query->delete();
-        ChangelogWriter::event(self::ENTITY, $memoryId, 'forgotten', ['shared' => true], 0, null, $this->scope->userId);
+        ChangelogWriter::event(self::ENTITY, $memoryId, 'forgotten', ['shared' => true, 'old' => (string) $was->fields['content']], 0, null, $this->scope->userId);
 
         return true;
     }
@@ -563,13 +567,14 @@ class Memory
     public function forget(int $memoryId): bool
     {
         $query = $this->scope->apply($this->table('assist.chat_memory'))->where('memory_id', $memoryId);
+        $was   = (clone $query)->first();
 
-        if ((clone $query)->count() === 0) {
+        if (!$was || (int) $was->numRows === 0) {
             return false;
         }
 
         $query->delete();
-        ChangelogWriter::event(self::ENTITY, $memoryId, 'forgotten', [], 0, null, $this->scope->userId);
+        ChangelogWriter::event(self::ENTITY, $memoryId, 'forgotten', ['old' => (string) $was->fields['content']], 0, null, $this->scope->userId);
 
         return true;
     }
@@ -581,7 +586,8 @@ class Memory
     public function amend(int $memoryId, ?string $content, ?string $topic): bool
     {
         $query = $this->scope->apply($this->table('assist.chat_memory'))->where('memory_id', $memoryId);
-        if ((clone $query)->count() === 0) {
+        $was   = (clone $query)->first();
+        if (!$was || (int) $was->numRows === 0) {
             return false;
         }
         $content = $content === null ? null : trim((string) preg_replace('/\s+/u', ' ', $content));
@@ -589,6 +595,11 @@ class Memory
             + ($topic !== null && $this->hasColumn('topic') ? ['topic' => self::topicOf($topic)] : []);
         if ($changes !== []) {
             $query->update($changes + ['updated_at' => CallLog::instant(time())]);
+            ChangelogWriter::event(self::ENTITY, $memoryId, 'corrected', array_filter([
+                'topic' => $changes['topic'] ?? null,
+                'old'   => isset($changes['content']) ? (string) $was->fields['content'] : null,
+                'new'   => $changes['content'] ?? null,
+            ]), 0, null, $this->scope->userId);
         }
 
         return true;
