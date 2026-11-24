@@ -304,6 +304,17 @@ them by handle should not fatal in an admin panel. There is **no `jquery-inputma
 The framework does not ship the files for any local registration, exactly as it does not ship
 `jquery-ui.min.js`. A registration is a handle-to-URL mapping; the application provides the file.
 
+Every one of these defaults is registered with `'mtime'` as its version — the same mechanism
+shown above, not something an application has to add. A proxy or CDN cache in front of the
+application (Cloudflare and similar) can only treat an asset as safe to cache forever when its
+own URL changes on every deploy; an unversioned URL — what every default here used to be
+registered with — can only ever get that cache's short default TTL, because the same address
+might serve yesterday's file tomorrow. The CDN-hosted handles (`jquery`, `bootstrap-datepicker`,
+`jquery-inputmask`) keep `'mtime'` too: {@see Document::stamped()} leaves a remote URL alone, so
+it costs nothing there and the version number is already in the CDN path. The two
+`jquery-inputmask-*` alias handles are the one exception — they have no `src` of their own to
+stamp a modification time from.
+
 #### Three defaults come from a CDN, and that is configurable
 
 `jquery`, `bootstrap-datepicker` and `jquery-inputmask` are registered against

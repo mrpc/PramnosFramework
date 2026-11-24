@@ -172,6 +172,61 @@ class DefaultRegistrationsTest extends TestCase
     }
 
     /**
+     * FW-578: every default registration with a real file behind it carries `'mtime'` as its
+     * version, not `''` — so {@see Document::stamped()} stamps it with the file's own
+     * modification time (`assetUrl()`) instead of the asset going out with no cache-busting
+     * query string at all. Before this, every one of these URLs was identical on every deploy,
+     * so a CDN/reverse-proxy cache in front of the application (reported against one with a 1-day
+     * default `browser_cache_ttl`) could only ever cache them for its short default TTL — never as the
+     * immutable, cache-forever asset they actually are, each new file at its own new address.
+     *
+     * The two `jquery-inputmask-*` alias handles are excluded on purpose: they register with an
+     * empty `src` (see {@see scriptHandles()}'s own comment on them) — there is no file behind
+     * them to stamp a modification time from, so they are left at `''`, same as before.
+     */
+    #[DataProvider('scriptHandles')]
+    public function testDefaultScriptIsVersionedByMtime(string $handle): void
+    {
+        if (str_contains($handle, 'inputmask-extensions') || str_contains($handle, 'inputmask-date')) {
+            $this->markTestSkipped($handle . ' has no real file behind it; nothing to stamp.');
+        }
+
+        // Arrange
+        $document = Document::getInstance('html');
+        $registry = new \ReflectionProperty(Document::class, '_js');
+
+        // Act
+        $all = (array) $registry->getValue($document);
+
+        // Assert
+        $this->assertSame(
+            'mtime',
+            $all[$handle]['ver'] ?? null,
+            $handle . " must be registered with version 'mtime' so it gets a deploy-stamped,"
+            . ' cache-forever URL instead of an unversioned one (FW-578).'
+        );
+    }
+
+    /** @see testDefaultScriptIsVersionedByMtime() — the same proof for the style side. */
+    #[DataProvider('styleHandles')]
+    public function testDefaultStyleIsVersionedByMtime(string $handle): void
+    {
+        // Arrange
+        $document = Document::getInstance('html');
+        $registry = new \ReflectionProperty(Document::class, '_css');
+
+        // Act
+        $all = (array) $registry->getValue($document);
+
+        // Assert
+        $this->assertSame(
+            'mtime',
+            $all[$handle]['version'] ?? null,
+            $handle . " must be registered with version 'mtime' (FW-578)."
+        );
+    }
+
+    /**
      * `jquery-inputmask-jui` is **not** registered, and never was.
      *
      * Recorded because it appeared on a consumer's migration checklist among five handles that

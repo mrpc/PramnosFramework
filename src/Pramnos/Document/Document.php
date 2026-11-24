@@ -293,60 +293,60 @@ class Document extends \Pramnos\Framework\Base
             isset($local['jquery'])
                 ? sURL . 'media/js/jquery/jquery.min.js'
                 : 'https://cdnjs.cloudflare.com/ajax/libs/jquery/2.2.4/jquery.min.js',
-            array(), '', false
+            array(), 'mtime', false
         ); //jQuery
         $this->registerScript(
             'jquery-ui', sURL . 'media/js/jquery/ui.min.js',
-            array('jquery'), '', true
+            array('jquery'), 'mtime', true
         ); //jQuery UI
         $this->registerScript(
             'datatables',
             sURL . 'media/js/jquery/jquery.dataTables.min.js',
-            array('jquery-ui'), '', true
+            array('jquery-ui'), 'mtime', true
         ); //DataTables
         $this->registerScript(
             'datatables-bootstrap',
             sURL . 'media/js/jquery/DataTables/bootstrap.js',
-            array('jquery-ui'), '', true
+            array('jquery-ui'), 'mtime', true
         ); //DataTables
         $this->registerScript(
             'tabletools',
             sURL . 'media/js/jquery/DataTables/TableTools.min.js',
-            array('datatables'), '', true
+            array('datatables'), 'mtime', true
         ); //DataTables - tabletools
         $this->registerScript(
             'datatables-responsive',
             sURL . 'media/js/jquery/DataTables/responsive.min.js',
-            array('datatables'), '', true
+            array('datatables'), 'mtime', true
         ); //DataTables - tabletools
         $this->registerScript(
             'zeroclipboard',
             sURL . 'media/js/jquery/DataTables/ZeroClipboard.js',
-            array('datatables'), '', true
+            array('datatables'), 'mtime', true
         ); //DataTables - zeroclipboard
         $this->registerScript(
             'jquery-tmpl', sURL . 'media/js/jquery/jquery.tmpl.min.js',
-            array('jquery'), '', true
+            array('jquery'), 'mtime', true
         );
         $this->registerScript(
             'iframe-transport',
             sURL . 'media/js/jquery/jquery.iframe-transport.js',
-            array('jquery'), '', true
+            array('jquery'), 'mtime', true
         );
         $this->registerScript(
             'jquery-fileupload',
             sURL . 'media/js/jquery/jquery.fileupload.js',
-            array('jquery-ui', 'iframe-transport', 'jquery-tmpl'), '', true
+            array('jquery-ui', 'iframe-transport', 'jquery-tmpl'), 'mtime', true
         );
         $this->registerScript(
             'jquery-fileupload-fp',
             sURL . 'media/js/jquery/jquery.fileupload-fp.js',
-            array('jquery-fileupload'), '', true
+            array('jquery-fileupload'), 'mtime', true
         );
         $this->registerScript(
             'jquery-fileupload-ui',
             sURL . 'media/js/jquery/jquery.fileupload-ui.js',
-            array('jquery-fileupload'), '', true
+            array('jquery-fileupload'), 'mtime', true
         );
         $this->registerScript(
             'jquery-fileupload-jui',
@@ -355,7 +355,7 @@ class Document extends \Pramnos\Framework\Base
                 'jquery-fileupload',
                 'jquery-fileupload-fp',
                 'jquery-fileupload-ui'
-            ), '', true
+            ), 'mtime', true
         );
 
 
@@ -366,7 +366,7 @@ class Document extends \Pramnos\Framework\Base
                 ? sURL . 'plugins/datepicker/bootstrap-datepicker.js'
                 : 'https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/'
                   . '1.9.0/js/bootstrap-datepicker.min.js',
-            array(), '', true
+            array(), 'mtime', true
         );
 
         //jQuery InputMask
@@ -375,7 +375,7 @@ class Document extends \Pramnos\Framework\Base
                 ? sURL . 'plugins/input-mask/jquery.inputmask.js'
                 : 'https://cdnjs.cloudflare.com/ajax/libs/jquery.inputmask/'
                   . '3.3.4/jquery.inputmask.bundle.min.js',
-            array('jquery'), '', true
+            array('jquery'), 'mtime', true
         );
 
         // The 3.3.4 bundle contains the extensions that used to be separate files, so these
@@ -402,15 +402,15 @@ class Document extends \Pramnos\Framework\Base
         // handle-to-URL mapping, and the application provides the file.
         $this->registerScript(
             'slimbox2', sURL . 'media/js/jquery/slimbox2.js',
-            array('jquery'), '', true
+            array('jquery'), 'mtime', true
         );
         $this->registerScript(
             'thickbox', sURL . 'media/js/jquery/thickbox.js',
-            array('jquery')
+            array('jquery'), 'mtime'
         );
         $this->registerScript(
             'spectrum', sURL . 'media/js/jquery/spectrum.js',
-            array('jquery')
+            array('jquery'), 'mtime'
         );
 
         //SPRY — Adobe's, unmaintained since 2012, and still enqueued by templates that
@@ -418,32 +418,32 @@ class Document extends \Pramnos\Framework\Base
         //recommends them.
         $this->registerScript(
             'SpryMenuBar', sURL . 'media/js/SpryAssets/SpryMenuBar.js',
-            array('jquery'), '', true
+            array('jquery'), 'mtime', true
         );
         $this->registerScript(
             'SpryValidationTextArea',
             sURL . 'media/js/SpryAssets/SpryValidationTextArea.min.js',
-            array('jquery'), '', true
+            array('jquery'), 'mtime', true
         );
         $this->registerScript(
             'SpryValidationTextField',
             sURL . 'media/js/SpryAssets/SpryValidationTextField.min.js',
-            array('jquery'), '', true
+            array('jquery'), 'mtime', true
         );
         $this->registerScript(
             'SpryValidationPassword',
             sURL . 'media/js/SpryAssets/SpryValidationPassword.min.js',
-            array('jquery'), '', true
+            array('jquery'), 'mtime', true
         );
         $this->registerScript(
             'SpryValidationConfirm',
             sURL . 'media/js/SpryAssets/SpryValidationConfirm.min.js',
-            array('jquery'), '', true
+            array('jquery'), 'mtime', true
         );
         $this->registerScript(
             'SpryValidationCheckbox',
             sURL . 'media/js/SpryAssets/SpryValidationCheckbox.min.js',
-            array('jquery'), '', true
+            array('jquery'), 'mtime', true
         );
 
         //Register default stylesheets
@@ -454,82 +454,96 @@ class Document extends \Pramnos\Framework\Base
             isset($local['bootstrap-datepicker'])
                 ? sURL . 'plugins/datepicker/bootstrap-datepicker3.standalone.min.css'
                 : 'https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/'
-                  . '1.9.0/css/bootstrap-datepicker3.standalone.min.css'
+                  . '1.9.0/css/bootstrap-datepicker3.standalone.min.css',
+            array(), 'mtime'
         );
 
         // Restored with the scripts above, for the same reason.
         $this->registerStyle(
-            'mediamanager', sURL . 'media/css/pramnoscms/media.css'
+            'mediamanager', sURL . 'media/css/pramnoscms/media.css',
+            array(), 'mtime'
         );
         $this->registerStyle(
-            'slimbox2', sURL . 'media/css/jquery/slimbox2.css'
+            'slimbox2', sURL . 'media/css/jquery/slimbox2.css',
+            array(), 'mtime'
         );
         $this->registerStyle(
-            'thickbox', sURL . 'media/css/jquery/thickbox.css'
+            'thickbox', sURL . 'media/css/jquery/thickbox.css',
+            array(), 'mtime'
         );
         $this->registerStyle(
-            'spectrum', sURL . 'media/css/jquery/spectrum.css'
+            'spectrum', sURL . 'media/css/jquery/spectrum.css',
+            array(), 'mtime'
         );
         $this->registerStyle(
             'SpryValidationTextarea',
-            sURL . 'media/css/SpryAssets/SpryValidationTextarea.css'
+            sURL . 'media/css/SpryAssets/SpryValidationTextarea.css',
+            array(), 'mtime'
         );
         $this->registerStyle(
             'SpryValidationTextField',
-            sURL . 'media/css/SpryAssets/SpryValidationTextField.css'
+            sURL . 'media/css/SpryAssets/SpryValidationTextField.css',
+            array(), 'mtime'
         );
         $this->registerStyle(
             'SpryValidationPassword',
-            sURL . 'media/css/SpryAssets/SpryValidationPassword.css'
+            sURL . 'media/css/SpryAssets/SpryValidationPassword.css',
+            array(), 'mtime'
         );
         $this->registerStyle(
             'SpryValidationConfirm',
-            sURL . 'media/css/SpryAssets/SpryValidationConfirm.css'
+            sURL . 'media/css/SpryAssets/SpryValidationConfirm.css',
+            array(), 'mtime'
         );
         $this->registerStyle(
             'SpryValidationCheckbox',
-            sURL . 'media/css/SpryAssets/SpryValidationCheckbox.css'
+            sURL . 'media/css/SpryAssets/SpryValidationCheckbox.css',
+            array(), 'mtime'
         );
         $this->registerStyle(
             'SpryMenuBarHorizontal',
-            sURL . 'media/css/SpryAssets/SpryMenuBarHorizontal.css'
+            sURL . 'media/css/SpryAssets/SpryMenuBarHorizontal.css',
+            array(), 'mtime'
         );
         $this->registerStyle(
-            'jquery-ui', sURL . 'media/css/jquery/jquery-ui.css'
+            'jquery-ui', sURL . 'media/css/jquery/jquery-ui.css',
+            array(), 'mtime'
         );
 
         $this->registerStyle(
             'jquery-fileupload-ui',
             sURL . 'media/css/jquery/jquery.fileupload-ui.css',
-            array('jquery-ui')
+            array('jquery-ui'), 'mtime'
         );
         $this->registerStyle(
-            'datatables', sURL . 'media/css/jquery/datatables.min.css'
+            'datatables', sURL . 'media/css/jquery/datatables.min.css',
+            array(), 'mtime'
         );
         $this->registerStyle(
-            'datatables-ui', sURL . 'media/css/jquery/table_jui.css'
+            'datatables-ui', sURL . 'media/css/jquery/table_jui.css',
+            array(), 'mtime'
         );
         $this->registerStyle(
             'datatables-bootstrap',
             sURL . 'media/css/jquery/dataTables.bootstrap.css',
-            array('datatables')
+            array('datatables'), 'mtime'
         );
         $this->registerStyle(
             'datatables-responsive',
             sURL . 'media/css/jquery/dataTables.responsive.css',
-            array('datatables')
+            array('datatables'), 'mtime'
         );
 
 
 
         $this->registerStyle(
             'tabletools', sURL . 'media/css/jquery/TableTools.css',
-            array('datatables')
+            array('datatables'), 'mtime'
         );
         $this->registerStyle(
             'tabletools-ui',
             sURL . 'media/css/jquery/TableTools_JUI.css',
-            array('datatables', 'jquery-ui')
+            array('datatables', 'jquery-ui'), 'mtime'
         );
 
 
