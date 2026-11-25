@@ -298,7 +298,14 @@ class Datasource extends Base
         }
         $qb->select($selectFields);
 
-        $where = str_ireplace('where', ' ', $whereStatement);
+        // Strips only a leading `WHERE` keyword (the convention this method's own docblock
+        // shows, e.g. 'WHERE a.status = 1') before handing the rest to whereRaw() below, which
+        // adds its own. A blind str_ireplace('where', ' ', ...) here used to erase EVERY
+        // case-insensitive occurrence of the substring anywhere in the fragment, not only that
+        // leading keyword — silently corrupting a legitimately nested `WHERE` inside a correlated
+        // subquery (`exists (select 1 from x v where ... and exists (select 1 from y e where
+        // ...))`) into a syntax error at the database. Reproduced live on exactly that shape.
+        $where = (string) preg_replace('/^\s*where\b\s*/i', '', (string) $whereStatement, 1);
         if ($debug == true) {
             echo "<pre>DEBUG MODE\n\n</pre>";
         }

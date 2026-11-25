@@ -1076,6 +1076,16 @@ $where  = $status !== '' ? 'WHERE a.status = ' . (int) $status : '';
 $rows   = Datasource::getList('orders', $fields, false, $where);
 ```
 
+Only this leading `WHERE` is stripped before the rest is handed to the query builder's own
+`whereRaw()`, which adds its own keyword — never every occurrence of the word. A fragment can
+safely carry its own nested `WHERE` further in, inside a correlated `EXISTS` subquery or a string
+literal (`WHERE a.title = 'Somewhere'`):
+
+```php
+$where = 'WHERE exists (select 1 from orders o where o.customer_id = a.id)';
+$rows  = Datasource::getList('customers', $fields, false, $where);
+```
+
 `Datasource::columnSearch($i)` reads without taking. Both read DataTables 1.10's
 `columns[N][search][value]` and 1.9's `sSearch_N` alike, so the code does not depend on which
 version of the client made the request. A multiple select's choice — an array, since its

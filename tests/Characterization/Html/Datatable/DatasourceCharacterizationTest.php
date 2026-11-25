@@ -415,6 +415,75 @@ class DatasourceCharacterizationTest extends TestCase
         $this->assertSame(date('Y-m-d', 1714680000), $result['aaData'][0][0]);
     }
 
+    /**
+     * render()'s `$whereStatement` argument strips only its own leading `WHERE` keyword, not
+     * every case-insensitive occurrence of the substring "where" anywhere in the fragment.
+     *
+     * A `str_ireplace('where', ' ', $whereStatement)` — what this used to be — erases every
+     * match, so a value that merely contains the four letters "where" (here, inside a string
+     * literal) got mangled into something else entirely rather than passed through.
+     */
+    public function testWhereStatementPreservesTheSubstringWhereInsideAStringLiteral(): void
+    {
+        // Arrange
+        $this->db->query("UPDATE `dt_orders` SET `title` = 'Somewhere' WHERE `id` = 1");
+        $this->setPost([
+            'iDisplayStart' => '0',
+            'iDisplayLength' => '10',
+            'sEcho' => '1',
+        ]);
+        $datasource = new Datasource();
+
+        // Act — the leading WHERE is the only keyword meant to be stripped; "Somewhere" must survive
+        $result = $datasource->render(
+            'dt_orders',
+            ['id', 'title', 'amount'],
+            false,
+            "WHERE a.title = 'Somewhere'",
+            '',
+            false
+        );
+
+        // Assert
+        $this->assertCount(1, $result['aaData']);
+        $this->assertSame('Somewhere', $result['aaData'][0][1]);
+    }
+
+    /**
+     * A correlated `EXISTS` subquery inside `$whereStatement` carries its own, nested `WHERE`
+     * keywords — which must survive untouched, the same bug as the string-literal case above
+     * but the shape that actually broke in production: `str_ireplace('where', ' ', …)` deleted
+     * every inner `WHERE` too, turning `… from x v where v.col = a.col …` into `… from x v
+     * v.col = a.col …` — a syntax error at the database, not merely a wrong filter.
+     */
+    public function testWhereStatementPreservesNestedWhereKeywordsInACorrelatedSubquery(): void
+    {
+        // Arrange
+        $this->setPost([
+            'iDisplayStart' => '0',
+            'iDisplayLength' => '10',
+            'sEcho' => '1',
+        ]);
+        $datasource = new Datasource();
+        // Two nested WHEREs past the fragment's own leading one — every order whose customer
+        // exists in dt_customers, which is all four seeded rows.
+        $whereStatement = 'WHERE exists (select 1 from dt_customers c where c.id = a.customer_id '
+            . 'and exists (select 1 from dt_customers c2 where c2.id = c.id))';
+
+        // Act — this must not raise a database syntax error
+        $result = $datasource->render(
+            'dt_orders',
+            ['id', 'title', 'amount'],
+            false,
+            $whereStatement,
+            '',
+            false
+        );
+
+        // Assert
+        $this->assertCount(4, $result['aaData']);
+    }
+
     private function resetRequestState(): void
     {
         // Arrange
