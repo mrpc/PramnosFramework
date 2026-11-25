@@ -1245,6 +1245,17 @@ conversation and month, the largest and the oldest; the largest file allowed (th
 all — with a report of how many went and the space freed, or one file at a time. A removed file's
 message says it was removed, and when.
 
+**Names** default to first and last name, or the username where there is none:
+`conversations.names`, a callable given the ids and the reader (null where none is known — not
+every caller has one), answers a different name for each id it has one for — a nickname or a
+custom display name, in place of the account's own first/last name. `People::names($ids, $reader)`
+asks the hook once for many, after computing the default names, and keeps what it answers only for
+an id asked about and only a non-empty name; everything else keeps its default.
+
+```php
+'conversations' => ['names' => fn (array $ids, ?object $reader): array => Nicknames::forUsers($ids)],
+```
+
 **Faces** are initials on a colour of the person's own, unless the application has pictures:
 `conversations.avatars`, a callable given the ids and the reader, answers an image's address for
 each it has one for (http(s) or a path of the site; anything else is dropped). The JSON carries

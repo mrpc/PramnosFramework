@@ -15,12 +15,23 @@ namespace Pramnos\Conversations;
 final class People
 {
     /**
-     * The names of accounts, by id.
+     * The names of accounts, by id: first and last name, or the username where there is none —
+     * unless the application overrides it, `conversations.names`, a callable given the ids and
+     * the reader (null where none is known — not every caller has one), answering a name for
+     * each id it has a different one for:
+     *
+     * ```php
+     * 'conversations' => ['names' => fn (array $ids, ?object $reader): array => Nicknames::forUsers($ids)],
+     * ```
+     *
+     * An id not asked for is dropped, and so is an empty name; either way the account keeps its
+     * default. The hook runs last, over the already-computed map — what it does not answer for
+     * stays the default name, not blank.
      *
      * @param list<int> $ids
      * @return array<int, string>
      */
-    public static function names(array $ids): array
+    public static function names(array $ids, ?object $reader = null): array
     {
         $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn (int $id): bool => $id > 0)));
         if ($ids === []) {
@@ -31,6 +42,16 @@ final class People
             ->select(['users.userid', 'users.username', 'users.firstname', 'users.lastname'])->whereIn('users.userid', $ids)->getAllOrFail() as $row) {
             $full = trim((string) $row['firstname'] . ' ' . (string) $row['lastname']);
             $names[(int) $row['userid']] = $full !== '' ? $full : (string) $row['username'];
+        }
+
+        $hook = Conversations::settings()['names'] ?? null;
+        if (is_callable($hook)) {
+            foreach ((array) $hook($ids, $reader) as $id => $name) {
+                $name = trim((string) $name);
+                if ($name !== '' && in_array((int) $id, $ids, true)) {
+                    $names[(int) $id] = $name;
+                }
+            }
         }
 
         return $names;
@@ -161,7 +182,7 @@ final class People
 
         return [
             'id'         => $person,
-            'name'       => self::names([$person])[$person] ?? '#' . $person,
+            'name'       => self::names([$person], $reader)[$person] ?? '#' . $person,
             'lastSignIn' => (int) $row['lastlogin'],
             'inactive'   => self::inactive([$person], $now)[$person] ?? null,
             'utcOffset'  => $offset,

@@ -698,6 +698,50 @@ class ConversationsTest extends TestCase
     }
 
     /**
+     * People's names are the application's too: `conversations.names` is asked once for the ids
+     * — after the default first/last-name (or username) names are already computed — with the
+     * reader where one is known, null otherwise; what it answers replaces the default, but only
+     * for an id asked about and only with a non-empty name, same rule-shape as the avatars hook
+     * above. Without the hook, or for an id it has nothing to say about, the default stands.
+     */
+    #[DataProvider('databases')]
+    public function testNamesAreTheApplicationsToo(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $this->team();
+        [$eleni, $maria, $nikos] = [$this->ids['eleni'], $this->ids['maria'], $this->ids['nikos']];
+        $default = People::names([$eleni, $maria]);
+        $asked   = [];
+        Application::getInstance()->applicationInfo['conversations']['names'] = function (array $ids, ?object $reader) use (&$asked, $eleni, $maria): array {
+            $asked[] = [$ids, $reader !== null ? (int) $reader->userid : null];
+
+            return [$maria => 'Μαρία (nickname)', 4242 => 'a stranger', $eleni => ''];
+        };
+
+        // Act
+        $named   = People::names([$eleni, $maria, $nikos], $this->user('eleni'));
+        $noOne   = People::names([$eleni, $maria, $nikos]);
+        $profile = People::profile($maria, $this->user('eleni'));
+        $empty   = People::names([]);
+
+        // Assert
+        $this->assertArrayHasKey($maria, $default, 'named by the default before any hook runs');
+        $this->assertNotSame('Μαρία (nickname)', $default[$maria], 'the default, not yet overridden');
+        $this->assertSame('Μαρία (nickname)', $named[$maria], 'replaced by the hook');
+        $this->assertSame($default[$eleni] ?? null, $named[$eleni], 'an empty override from the hook leaves the default');
+        $this->assertArrayHasKey($nikos, $named, 'untouched by the hook, still named by the default');
+        $this->assertArrayNotHasKey(4242, $named, 'not one of the ids asked about');
+        $this->assertSame([[$eleni, $maria, $nikos], $eleni], $asked[0], 'each id once, with the reader');
+        $this->assertArrayHasKey(1, $asked, 'the hook ran for $noOne too, without a reader');
+        $this->assertSame([$eleni, $maria, $nikos], $asked[1][0]);
+        $this->assertNull($asked[1][1], 'no reader — $reader is null, not an error');
+        $this->assertSame('Μαρία (nickname)', $noOne[$maria], 'the hook runs with or without a reader');
+        $this->assertSame('Μαρία (nickname)', $profile['name'], 'a profile uses the same, overridden name');
+        $this->assertSame([], $empty);
+    }
+
+    /**
      * A reply also sent to the conversation stays in its thread and is listed with the conversation's
      * own messages, in order, showing what it answers; it counts as unread like them and moves the
      * conversation's newest; `broadcast` without a thread is refused. Told as any message is, marked.
