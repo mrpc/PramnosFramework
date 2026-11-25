@@ -242,7 +242,9 @@ class ConversationsTest extends TestCase
      * seconds for a hundred conversations over a hypertable of many chunks. The shapes that must
      * stay right: read to the newest (no unread), behind, never read, a mention in a thread reply
      * (not in the stream, still a mention), `@all`, history written into the past, and a dm's
-     * members.
+     * members. Two more queries join in only where there is at least one mention delivered as a
+     * thread reply (FW-581) — the thread's own read pointers and their positions, read once for
+     * every such mention across every conversation, not once per conversation.
      */
     #[DataProvider('databases')]
     public function testTheSidebarCountsEveryConversationInAFewQueries(string $type, string $host, int $port, string $user): void
@@ -286,8 +288,10 @@ class ConversationsTest extends TestCase
         $this->assertSame(['unread' => 2, 'mentions' => 1], $expected[$never]);
         $this->assertSame([$eleni, $maria], $side[$dm]['members']);
         $this->assertNull($side[$read]['members'], 'a channel lists no members');
-        // The memberships, the positions, the unread, the mentions, the members — not per conversation.
-        $this->assertLessThanOrEqual(6, $queries);
+        // The memberships, the positions, the unread, the mentions, the members — not per
+        // conversation; plus the thread read pointers and their positions (FW-581), since $behind
+        // has a mention delivered as a thread reply.
+        $this->assertLessThanOrEqual(8, $queries);
         // Somebody read to the newest everywhere — the past message and the thread reply move no
         // newest — has nothing unread without a count being asked; somebody in none has no list.
         $nikosBehind = Conversations::counts($behind, $nikos, (int) Conversations::member($behind, $nikos)['lastReadId']);
@@ -324,6 +328,49 @@ class ConversationsTest extends TestCase
         $this->assertSame(1, $side['unread'], 'nor by forPerson(), which feeds the sidebar badge');
         Conversations::markRead($general, $eleni, $said);
         $this->assertSame(0, Conversations::counts($general, $eleni, $said)['unread'], 'reading the plain message clears it, reminder or not');
+    }
+
+    /**
+     * A mention delivered as a reply in a thread (FW-581) is read once the thread's own pointer
+     * ({@see Threads::markRead()}, FW-498) passes it — in {@see Conversations::counts()} (one
+     * conversation) and in {@see Conversations::forPerson()} (the sidebar, many at once) alike.
+     *
+     * The conversation-level read pointer only ever moves with top-level messages, so without
+     * consulting the thread's own it never advances past the reply at all: before this fix, the
+     * mention stayed "unread" for ever, even with the thread open and read, unless some later
+     * top-level message in the same conversation happened to be read afterward.
+     */
+    #[DataProvider('databases')]
+    public function testAMentionInAThreadReplyIsReadThroughTheThreadsOwnPointer(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $this->team();
+        [$eleni, $maria] = [$this->ids['eleni'], $this->ids['maria']];
+        $general = Conversations::create('channel', 'general', [$maria], $eleni);
+        $root    = Messages::post($general, $maria, 'ερώτηση');
+        Conversations::markRead($general, $eleni, $root);
+        // A top-level mention alongside the reply's: one stays unread by the conversation-level
+        // pointer alone, the other only once its own thread is read — a mixed batch, so
+        // readByThread() also has to rule a row *out* (threadrootid null) once it has run at all.
+        $topMention = Messages::post($general, $maria, 'γεια <@' . $eleni . '>');
+        $reply      = Messages::post($general, $maria, 'απάντηση <@' . $eleni . '>', ['thread' => $root]);
+        $lastRead = (int) Conversations::member($general, $eleni)['lastReadId'];
+
+        // Act — before the thread is ever opened, and after
+        $before     = Conversations::counts($general, $eleni, $lastRead);
+        $sideBefore = array_column(Conversations::forPerson($eleni), null, 'id')[$general];
+        \Pramnos\Conversations\Threads::markRead($root, $eleni, $reply);
+        $after     = Conversations::counts($general, $eleni, $lastRead);
+        $sideAfter = array_column(Conversations::forPerson($eleni), null, 'id')[$general];
+
+        // Assert
+        $this->assertSame($lastRead, $root, 'a reply never moves the conversation-level pointer');
+        $this->assertSame(2, $before['mentions'], 'both unread before the thread is ever read');
+        $this->assertSame(2, $sideBefore['mentions']);
+        $this->assertSame(1, $after['mentions'], 'the reply is read through its thread; the top-level mention is not, and stays');
+        $this->assertSame(1, $sideAfter['mentions']);
+        $this->assertSame(1, $after['unread'], 'the top-level mention, still unread; a reply is never in the top-level unread stream to begin with');
     }
 
     /**

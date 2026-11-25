@@ -449,6 +449,11 @@ final class Conversations
      * What a person has not read in a conversation after a message: the top-level messages others
      * wrote, and the mentions of them, `@all` and `@online` among them.
      *
+     * A mention delivered as a reply in a thread (FW-498, FW-581) is read once its position is no
+     * later than that thread's own read point ({@see Threads::read()}) — the conversation-level
+     * `$after` only ever moves with top-level messages, so a reply never advances it, and a mention
+     * inside one would otherwise stay "unread" for ever even after the thread itself was read.
+     *
      * @return array{unread: int, mentions: int}
      */
     public static function counts(int $id, int $person, int $after): array
@@ -467,14 +472,48 @@ final class Conversations
             });
         }
         $unread = (int) ($unreadQuery->getAllOrFail()[0]['n'] ?? 0);
-        $mentions = (int) ($db->queryBuilder()->table('chat.conversation_mentions AS mn')
-            ->join('chat.conversation_messages AS m', 'm.messageid', '=', 'mn.messageid')->select([new Expression('COUNT(*) AS n')])
+        $mentionRows = $db->queryBuilder()->table('chat.conversation_mentions AS mn')
+            ->join('chat.conversation_messages AS m', 'm.messageid', '=', 'mn.messageid')
+            ->select(['m.messageid', 'm.threadrootid'])
             ->where('mn.conversationid', $id)->where(static fn ($q) => Messages::beyondPosition($q, $after, $position, true, 'm.'))
             ->where(static function ($q) use ($person): void {
                 $q->where('mn.participantid', $person)->whereIn('mn.kind', ['all', 'online'], 'or');
-            })->getAllOrFail()[0]['n'] ?? 0);
+            })->getAllOrFail();
+        $mentions = count($mentionRows) - count(self::readByThread($mentionRows, $person));
 
         return ['unread' => $unread, 'mentions' => $mentions];
+    }
+
+    /**
+     * Of these mention rows (each with `messageid` and `threadrootid`), the ones that are a reply
+     * already read through that thread's own pointer — read even though the conversation-level
+     * `$after` never moved past them, since a reply never advances it.
+     *
+     * @param list<array<string, mixed>> $rows
+     * @return list<array<string, mixed>>
+     */
+    private static function readByThread(array $rows, int $person): array
+    {
+        $roots = array_values(array_unique(array_filter(array_map(static fn (array $r): int => (int) ($r['threadrootid'] ?? 0), $rows))));
+        if ($roots === []) {
+            return [];
+        }
+        $threadReads = Threads::readMany($roots, $person);
+        if ($threadReads === []) {
+            return [];
+        }
+        $positions = Messages::positions([...array_column($rows, 'messageid'), ...array_map(static fn (array $r): int => $r['lastReadId'], $threadReads)]);
+
+        return array_values(array_filter($rows, static function (array $row) use ($threadReads, $positions): bool {
+            $root = (int) ($row['threadrootid'] ?? 0);
+            if ($root === 0 || !isset($threadReads[$root])) {
+                return false;
+            }
+            $message = (int) $row['messageid'];
+            $read    = $threadReads[$root]['lastReadId'];
+
+            return !Messages::standsAfter($message, $positions[$message] ?? null, $read, $positions[$read] ?? null);
+        }));
     }
 
     /** Archive a conversation: read, no longer written to. */
@@ -580,7 +619,8 @@ final class Conversations
     /**
      * {@see counts()}'s mentions, for many conversations in one query: the person's mentions,
      * `@all` and `@online`, from the oldest point any of them was read, counted here against
-     * each conversation's own.
+     * each conversation's own — and, same as {@see counts()}, a reply already read through its
+     * own thread pointer (FW-581) is left out even where the conversation-level one never moved.
      *
      * @param list<array<string, mixed>> $rows The person's memberships, with the conversation
      * @param array<int, array{at: string, id: int}> $positions
@@ -607,7 +647,7 @@ final class Conversations
         $since = $bound ? $since : null;
         $query = self::db()->queryBuilder()->table('chat.conversation_mentions AS mn')
             ->join('chat.conversation_messages AS m', 'm.messageid', '=', 'mn.messageid')
-            ->select(['mn.conversationid', 'm.messageid', 'm.created_at'])
+            ->select(['mn.conversationid', 'm.messageid', 'm.threadrootid', 'm.created_at'])
             ->whereIn('mn.conversationid', array_keys($read))
             ->where(static function ($q) use ($person): void {
                 $q->where('mn.participantid', $person)->whereIn('mn.kind', ['all', 'online'], 'or');
@@ -615,11 +655,16 @@ final class Conversations
         if (is_string($since)) {
             $query->where('m.created_at', '>=', $since);
         }
+        $rows        = $query->getAllOrFail();
+        $readReplies = array_column(self::readByThread($rows, $person), 'messageid');
         $out = [];
-        foreach ($query->getAllOrFail() as $row) {
+        foreach ($rows as $row) {
             $conversation = (int) $row['conversationid'];
             $message      = (int) $row['messageid'];
             $last         = $read[$conversation];
+            if (in_array($row['messageid'], $readReplies, true)) {
+                continue;
+            }
             if (Messages::standsAfter($message, ['at' => (string) $row['created_at'], 'id' => $message], $last, $positions[$last] ?? null)) {
                 $out[$conversation] = ($out[$conversation] ?? 0) + 1;
             }

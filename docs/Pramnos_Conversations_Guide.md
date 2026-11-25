@@ -155,6 +155,13 @@ thread's read point). A client calls it when a thread opens, and when a reply ar
 thread that is open and in front — the same moment it would otherwise call `read` for the
 conversation.
 
+**A mention delivered as a reply counts the same way** (FW-581): `Conversations::counts()` and
+`Conversations::forPerson()` leave a mention out of `mentions` once its own reply's position no
+longer stands after that thread's read point — in addition to, never instead of, the existing
+check against the conversation's own `lastReadId`. Without it, a mention in a reply stayed
+"unread" for ever once the thread itself was read, since nothing about reading a thread ever
+moves the conversation-level pointer a reply sits behind.
+
 **Opening at a message.** A link to a message, or a to-do from one, opens its conversation there:
 `Messages::around($id, $messageId, $limit)` gives about half the page up to the message and the
 rest after it, with `older` and `newer` saying whether there is more each way — the client then
