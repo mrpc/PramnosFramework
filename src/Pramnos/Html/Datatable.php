@@ -723,14 +723,17 @@ embed;
 embed;
                 }
 
-                // Scoped to the table's own footer first — see the comment below for why — but
-                // falling back to a page-wide lookup when the scoped one finds nothing. A
-                // column whose control is NOT inside the table's own <tfoot> (addColumn()'s
-                // footer argument left '', the control rendered elsewhere on the page) was never
-                // duplicated by scrollX's footer clone, so it was never the bug the scoped
-                // lookup exists for — but the scoped lookup alone finds nothing there either,
-                // silently dropping every value the admin picks. Reproduced on ~15 off-table
-                // columns across two real screens.
+                // The element's own value, at init, to pre-fill a restored state — needs an
+                // actual node to read/write, so still a lookup rather than a delegated listener.
+                // Scoped to the table's own footer first, falling back to a page-wide lookup when
+                // the scoped one finds nothing: a column whose control is NOT inside the table's
+                // own <tfoot> (addColumn()'s footer argument left '', the control rendered
+                // elsewhere on the page) was never duplicated by scrollX's footer clone, so the
+                // scoped lookup alone finds nothing there either. Reproduced on ~15 off-table
+                // columns across two real screens. This lookup runs once, at init, same as the
+                // restore itself — a column hidden by default (addColumn()'s 1st argument) has no
+                // cell, footer or otherwise, to find yet either way, same pre-existing gap as a
+                // bookmarked filter on a column nobody has made visible.
                 $elVar = "footSearchEl_{$c}";
                 $this->codeEmbed.=<<<embed
         var {$elVar} = jQuery({$jsVar}.api().table().footer()).find('#$id');
@@ -745,19 +748,33 @@ embed;
 embed;
                 }
 #{$jsVar}.fnFilter( $('#$id').val(),$c ); inside next code embed
-                // Scoped to the table's own footer, like fnInitComplete's state-restore
-                // above and the auto-generated boxes' own delegated binding — never the
-                // bare id. With scrollX (always on here) DataTables clones the footer
-                // into a second, hidden "sizing" row carrying the SAME id attributes,
-                // first in the DOM; jQuery('#id') (getElementById) binds to that clone,
-                // not to the one on screen, so nothing the admin picks ever reaches
-                // fnFilter — reproduced live on a status filter that never applied.
+                /*
+                 * Delegated from `document`, not bound to a looked-up element: a one-time
+                 * lookup at init — scoped-footer-with-fallback, same as above — finds nothing
+                 * for a column hidden by default (addColumn()'s 1st argument `visible` false),
+                 * because DataTables removes its cells from the DOM entirely at init, not just
+                 * hides them; when an admin later reveals the column from the column-visibility
+                 * picker, the control is created fresh and a one-time binding never reaches it.
+                 * A delegated listener only has to match whatever element actually dispatched the
+                 * event, so a control created after the fact is caught the first time it fires.
+                 *
+                 * Delegating on `document` rather than scoping to this table's own container,
+                 * unlike the auto-generated `.pf-footsearch` boxes above (always inside this
+                 * table's own footer): a custom control named by id is not guaranteed to be
+                 * inside the table's container at all — that is exactly the off-table case this
+                 * id-scoped selector also has to cover, and jQuery's delegated match only cares
+                 * which element the event came from, not where that element happens to sit. The
+                 * scrollX "sizing" clone that made a *direct* `jQuery('#id')` binding unsafe is
+                 * never itself clicked or typed into, so it is irrelevant to delegation — it
+                 * never dispatches the event, only the real, visible element the admin touches
+                 * does.
+                 */
                 $this->codeEmbed.=<<<embed
 
-        {$elVar}.change( function () {
+        jQuery(document).on('change', '#$id', function () {
             {$jsVar}.fnFilter( jQuery(this).val(),$c );
         } );
-        {$elVar}.keyup(DataTableDelay(function(){
+        jQuery(document).on('keyup', '#$id', DataTableDelay(function(){
             {$jsVar}.fnFilter( jQuery(this).val(),$c );
         } ));
 

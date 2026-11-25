@@ -1032,17 +1032,24 @@ The **10th** is the filter's current value, applied on load. Without it a bookma
 returned-to filter shows its chosen value while the table shows every row, which reads as a
 filter that does not work.
 
-**`change`/`keyup` look for the id-string control inside the table's own footer first, not with
-a bare `jQuery('#id')`** — because `scrollX` (always on) makes DataTables clone the footer into a
-second, hidden "sizing" row carrying the SAME id, which comes first in the DOM, and `jQuery('#id')`
-on its own binds to that invisible clone instead of the one on screen, so nothing the admin picks
-ever reaches `fnFilter()`. When the control really is rendered into the footer you passed as the
-6th argument, this scoped lookup is the one that finds it.
+**`change`/`keyup` are delegated from `document` by the id itself, never bound to a looked-up
+element.** A direct `jQuery('#id').change(...)` has two ways to silently bind nothing: `scrollX`
+(always on) makes DataTables clone the footer into a second, hidden "sizing" row carrying the SAME
+id, first in the DOM, so `jQuery('#id')` on its own binds that invisible clone instead of the one
+on screen; and a column hidden by default (the **1st** argument to `addColumn()`, `visible`,
+`false`) has no cells at all until an admin reveals it from the column-visibility picker — not
+merely hidden, genuinely absent from the DOM at init, when a one-time binding would have run.
+Delegation sidesteps both: a delegated listener only cares which element actually dispatched the
+event, so the scrollX clone (never itself clicked or typed into) is irrelevant, and a control
+created later — the column just made visible — is caught the first time it fires, with nothing to
+re-run. It also means the control genuinely can be anywhere on the page, not only inside the
+footer you passed as the 6th argument.
 
-A control rendered somewhere else on the page entirely (not the footer at all — never cloned, so
-never duplicated) falls back to the bare `jQuery('#id')` automatically, **only when the scoped
-lookup finds nothing**: the two cases cannot be told apart in advance, but they never collide,
-because a control that scrollX actually cloned is always found by the scoped lookup first.
+The filter's current value (the 10th argument) is the one exception still looked up directly, at
+init, scoped to the table's own footer with a page-wide fallback when that finds nothing — setting
+a value needs an actual element to write to, which delegation does not provide. A column that
+starts hidden has no element yet either way, so a bookmarked filter on a column nobody has made
+visible shows its chosen value only once the admin reveals the column and re-applies it.
 
 An id rather than `true` is how an enumerated column gets a dropdown: nobody guesses that
 "administrator" is stored as `90`, and a numeric column is matched **equal** rather than with
