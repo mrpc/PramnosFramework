@@ -1239,7 +1239,8 @@ class DatatableTest extends TestCase
         $this->assertStringContainsString('class="pf-footsearch" type="search" style="width:100%;box-sizing:border-box"', $html);
         $this->assertStringContainsString('value="searchme"', $html);
         $this->assertStringContainsString('mySearchTable.fnFilter( "searchme", 0 )', $html, 'a JSON string: see testValuesInTheScriptCannotBreakOutOfIt');
-        $this->assertStringContainsString('jQuery(mySearchTable.api().table().footer()).find(\'#emailsearch\').change', $html);
+        $this->assertStringContainsString('var footSearchEl_1 = jQuery(mySearchTable.api().table().footer()).find(\'#emailsearch\');', $html);
+        $this->assertStringContainsString('footSearchEl_1.change', $html);
         $this->assertStringContainsString('jQuery(mySearchTable.api().table().container()).on( "keyup", "tfoot input"', $html);
     }
 
@@ -1465,13 +1466,20 @@ class DatatableTest extends TestCase
      * element ID) but searchvalue is empty must still bind jQuery event handlers
      * without injecting fnFilter for a pre-filled value.
      *
-     * The binding must be scoped to the table's own footer
-     * (`jQuery(extSearch.api().table().footer()).find('#mySelect')`), never a bare
-     * `jQuery('#mySelect')`: with `scrollX` (always on), DataTables clones the footer
-     * into a second, hidden "sizing" row carrying the SAME id attributes, first in
-     * the DOM — `jQuery('#id')` (`getElementById`) binds to that clone instead of the
-     * one on screen, so nothing the admin picks in a real external select ever
-     * reaches `fnFilter()`. Reproduced live on a status filter that never applied.
+     * The lookup is scoped to the table's own footer first
+     * (`jQuery(extSearch.api().table().footer()).find('#mySelect')`), **not** a bare
+     * `jQuery('#mySelect')` on its own: with `scrollX` (always on), DataTables clones the footer
+     * into a second, hidden "sizing" row carrying the SAME id attributes, first in the DOM —
+     * `jQuery('#id')` (`getElementById`) binds to that clone instead of the one on screen, so
+     * nothing the admin picks in a real external select ever reaches `fnFilter()`. Reproduced
+     * live on a status filter that never applied.
+     *
+     * FW-556 follow-up: a control that is genuinely outside the table's `<tfoot>` (rendered in a
+     * separate panel elsewhere on the page, never duplicated by scrollX's footer clone) is found
+     * by neither lookup above, so the scoped one falls back to the bare id **only when it finds
+     * nothing** — restoring the pre-FW-556 behaviour for exactly the case FW-556 never touched,
+     * without reopening the duplicate-id bug FW-556 fixed. Reproduced on ~15 off-table columns
+     * across two real screens after upgrading past FW-556.
      */
     public function testFixColumnSearchWithExternalIdAndEmptySearchvalue(): void
     {
@@ -1491,18 +1499,29 @@ class DatatableTest extends TestCase
         // Act
         $html = $dt->render();
 
-        // Assert — jQuery change/keyup handlers bound, scoped to the real footer, not the bare id
-        $this->assertStringContainsString("jQuery(extSearch.api().table().footer()).find('#mySelect').change", $html);
-        $this->assertStringContainsString("jQuery(extSearch.api().table().footer()).find('#mySelect').keyup", $html);
+        // Assert — the scoped lookup, with the page-wide fallback for an off-footer control
+        $this->assertStringContainsString(
+            "var footSearchEl_0 = jQuery(extSearch.api().table().footer()).find('#mySelect');",
+            $html
+        );
+        $this->assertStringContainsString(
+            "if (footSearchEl_0.length === 0) { footSearchEl_0 = jQuery('#mySelect'); }",
+            $html,
+            'the scoped lookup must fall back to the bare id when the control is not in the footer at all'
+        );
+        $this->assertStringContainsString('footSearchEl_0.change', $html);
+        $this->assertStringContainsString('footSearchEl_0.keyup', $html);
         $this->assertStringContainsString('DataTableDelay', $html);
-        $this->assertStringNotContainsString("jQuery('#mySelect').change", $html, 'never the unscoped, clone-catching selector');
+        // The bare id is only ever reached through the conditional fallback above, never bound directly
+        $this->assertStringNotContainsString("jQuery('#mySelect').change", $html, 'never the unscoped selector bound directly');
         // No fnFilter injection because searchvalue is empty
         $this->assertStringNotContainsString('extSearch.fnFilter( "", 0 )', $html);
     }
 
     /**
      * fixColumnSearch() with stateSave=true and an external element ID must
-     * inject the aoPreSearchCols state-restore snippet.
+     * inject the aoPreSearchCols state-restore snippet, through the same scoped
+     * lookup (with its page-wide fallback) as the change/keyup handlers.
      */
     public function testFixColumnSearchWithStateSaveAndExternalId(): void
     {
@@ -1521,10 +1540,64 @@ class DatatableTest extends TestCase
         // Act
         $html = $dt->render();
 
-        // Assert — state-restore snippet present, scoped to the real footer
+        // Assert — state-restore snippet present, through the scoped-with-fallback lookup
         $this->assertStringContainsString('aoPreSearchCols', $html);
-        $this->assertStringContainsString("jQuery(stateSearch.api().table().footer()).find('#stateEl')", $html);
-        $this->assertStringNotContainsString("jQuery('#stateEl')", $html, 'never the unscoped, clone-catching selector');
+        $this->assertStringContainsString(
+            "var footSearchEl_0 = jQuery(stateSearch.api().table().footer()).find('#stateEl');",
+            $html
+        );
+        $this->assertStringContainsString(
+            "if (footSearchEl_0.length === 0) { footSearchEl_0 = jQuery('#stateEl'); }",
+            $html
+        );
+        $this->assertStringContainsString('footSearchEl_0.val(', $html);
+        $this->assertStringNotContainsString("jQuery('#stateEl').val(", $html, 'never the unscoped selector bound directly');
+    }
+
+    /**
+     * FW-556 follow-up: a table mixing a footer-rendered control (FW-556's own case) with a
+     * column whose control lives entirely outside the table — never inside `<tfoot>`, so scrollX
+     * never cloned it and the scoped lookup alone finds nothing there — must bind the off-table
+     * one through its own fallback and the in-footer one through the scoped lookup, each getting
+     * its own `footSearchEl_<c>` variable by column index rather than one shared between them.
+     */
+    public function testAnOffTableControlFallsBackWhileAnInFooterOneStaysScoped(): void
+    {
+        // Arrange — column 0's control is rendered in the footer (FW-556's case); column 1's is
+        // somewhere else on the page entirely (this follow-up's case)
+        $dt = new Datatable('mixedSearch');
+        $dt->addColumn('Name', true, true, true, '', '', true, 'left', 'inFooterId');
+        $dt->addColumn('Status', true, true, true, '', '', true, 'left', 'offTableId');
+
+        $doc = new class {
+            public function enqueueStyle(string $style): void {}
+            public function enqueueScript(string $script): void {}
+        };
+        $singleton = &\Pramnos\Framework\Factory::getDocument('html');
+        $singleton = $doc;
+
+        // Act
+        $html = $dt->render();
+
+        // Assert — each column's own scoped-then-fallback lookup, by its own column index
+        $this->assertStringContainsString(
+            "var footSearchEl_0 = jQuery(mixedSearch.api().table().footer()).find('#inFooterId');",
+            $html
+        );
+        $this->assertStringContainsString(
+            "if (footSearchEl_0.length === 0) { footSearchEl_0 = jQuery('#inFooterId'); }",
+            $html
+        );
+        $this->assertStringContainsString(
+            "var footSearchEl_1 = jQuery(mixedSearch.api().table().footer()).find('#offTableId');",
+            $html
+        );
+        $this->assertStringContainsString(
+            "if (footSearchEl_1.length === 0) { footSearchEl_1 = jQuery('#offTableId'); }",
+            $html
+        );
+        $this->assertStringContainsString('footSearchEl_0.change', $html);
+        $this->assertStringContainsString('footSearchEl_1.change', $html);
     }
 
     /**
@@ -2491,8 +2564,10 @@ class DatatableTest extends TestCase
         // scoped to the table's real footer rather than a bare id (see
         // testFixColumnSearchWithExternalIdAndEmptySearchvalue for why that matters)
         $this->assertStringContainsString('id="dt-users-type"', $html);
-        $this->assertStringContainsString("jQuery(userList.api().table().footer()).find('#dt-users-type').change", $js);
-        $this->assertStringContainsString("jQuery(userList.api().table().footer()).find('#dt-users-type').keyup(DataTableDelay", $js);
+        $this->assertStringContainsString("var footSearchEl_0 = jQuery(userList.api().table().footer()).find('#dt-users-type');", $js);
+        $this->assertStringContainsString("if (footSearchEl_0.length === 0) { footSearchEl_0 = jQuery('#dt-users-type'); }", $js);
+        $this->assertStringContainsString('footSearchEl_0.change', $js);
+        $this->assertStringContainsString('footSearchEl_0.keyup(DataTableDelay', $js);
     }
 
     /**

@@ -1032,12 +1032,17 @@ The **10th** is the filter's current value, applied on load. Without it a bookma
 returned-to filter shows its chosen value while the table shows every row, which reads as a
 filter that does not work.
 
-**The id-string control must sit inside the footer you rendered it into (the 6th argument),
-not elsewhere on the page.** `change`/`keyup` are wired to it scoped to the table's own
-footer — never a bare `jQuery('#id')` — because `scrollX` (always on) makes DataTables
-clone the footer into a second, hidden "sizing" row carrying the SAME id, which comes first
-in the DOM; `jQuery('#id')` binds to that invisible clone instead of the one on screen, and
-nothing the admin picks ever reaches `fnFilter()`.
+**`change`/`keyup` look for the id-string control inside the table's own footer first, not with
+a bare `jQuery('#id')`** — because `scrollX` (always on) makes DataTables clone the footer into a
+second, hidden "sizing" row carrying the SAME id, which comes first in the DOM, and `jQuery('#id')`
+on its own binds to that invisible clone instead of the one on screen, so nothing the admin picks
+ever reaches `fnFilter()`. When the control really is rendered into the footer you passed as the
+6th argument, this scoped lookup is the one that finds it.
+
+A control rendered somewhere else on the page entirely (not the footer at all — never cloned, so
+never duplicated) falls back to the bare `jQuery('#id')` automatically, **only when the scoped
+lookup finds nothing**: the two cases cannot be told apart in advance, but they never collide,
+because a control that scrollX actually cloned is always found by the scoped lookup first.
 
 An id rather than `true` is how an enumerated column gets a dropdown: nobody guesses that
 "administrator" is stored as `90`, and a numeric column is matched **equal** rather than with

@@ -723,10 +723,24 @@ embed;
 embed;
                 }
 
+                // Scoped to the table's own footer first — see the comment below for why — but
+                // falling back to a page-wide lookup when the scoped one finds nothing. A
+                // column whose control is NOT inside the table's own <tfoot> (addColumn()'s
+                // footer argument left '', the control rendered elsewhere on the page) was never
+                // duplicated by scrollX's footer clone, so it was never the bug the scoped
+                // lookup exists for — but the scoped lookup alone finds nothing there either,
+                // silently dropping every value the admin picks. Reproduced on ~15 off-table
+                // columns across two real screens.
+                $elVar = "footSearchEl_{$c}";
+                $this->codeEmbed.=<<<embed
+        var {$elVar} = jQuery({$jsVar}.api().table().footer()).find('#$id');
+        if ({$elVar}.length === 0) { {$elVar} = jQuery('#$id'); }
+embed;
+
                 if ($this->stateSave == true) {
                     $this->codeEmbed.=<<<embed
     if({$jsVar}.fnSettings().aoPreSearchCols[$c].sSearch.length>0){
-        jQuery({$jsVar}.api().table().footer()).find('#$id').val({$jsVar}.fnSettings().aoPreSearchCols[$c].sSearch);
+        {$elVar}.val({$jsVar}.fnSettings().aoPreSearchCols[$c].sSearch);
     }
 embed;
                 }
@@ -740,10 +754,10 @@ embed;
                 // fnFilter — reproduced live on a status filter that never applied.
                 $this->codeEmbed.=<<<embed
 
-        jQuery({$jsVar}.api().table().footer()).find('#$id').change( function () {
+        {$elVar}.change( function () {
             {$jsVar}.fnFilter( jQuery(this).val(),$c );
         } );
-        jQuery({$jsVar}.api().table().footer()).find('#$id').keyup(DataTableDelay(function(){
+        {$elVar}.keyup(DataTableDelay(function(){
             {$jsVar}.fnFilter( jQuery(this).val(),$c );
         } ));
 
