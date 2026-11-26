@@ -496,6 +496,9 @@
                 mine.source.connect(analyser);
                 var samples = new Float32Array(analyser.fftSize);
                 mine.timer = setInterval(function () {
+                    if (mine.done) {
+                        return;
+                    }
                     var now = Date.now();
                     if (loudness(analyser, samples) <= threshold) {
                         mine.loudSince = 0;
