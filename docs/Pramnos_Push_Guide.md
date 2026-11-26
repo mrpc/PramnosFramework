@@ -240,6 +240,12 @@ it can ask to show one — `Notification.requestPermission()` and `PushManager.s
 only in a page. An installation with the worker, the key pair, the table and the endpoints and
 no page that asks has no subscriptions, for ever, with nothing anywhere saying why.
 
+A page with both the settings screen's switch and the soft prompt below has two buttons wired to
+the one `subscribe()` — clicked close together, `subscribe()` reuses the first call's own in-flight
+promise rather than starting a second (FW-584): `PushManager.subscribe()` called twice before the
+first resolves has been observed to register two endpoints for the one browser instead of
+answering the same subscription both times.
+
 #### The soft prompt, and why it is not the real one
 
 ```html

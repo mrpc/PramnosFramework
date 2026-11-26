@@ -277,7 +277,21 @@
             });
     }
 
+    /*
+     * Two call sites can reach `subscribe()` close together — the soft prompt and the settings
+     * switch are two buttons on the same page, both wired to it — and `PushManager.subscribe()`
+     * called twice before the first resolves is not guaranteed to answer the same subscription
+     * twice: it has been observed to register two endpoints for the one browser instead (FW-584).
+     * A second call while one is already in flight gets that same promise back rather than
+     * starting its own.
+     */
+    var inFlight = null;
+
     function subscribe() {
+        if (inFlight) {
+            return inFlight;
+        }
+
         say('Asking…', true);
 
         /*
@@ -287,7 +301,7 @@
          * suppressed outright for visitors who habitually deny them — so the one chance an
          * application gets is spent before anybody has decided anything.
          */
-        return Notification.requestPermission()
+        inFlight = Notification.requestPermission()
             .then(function (permission) {
                 if (permission !== 'granted') {
                     /*
@@ -359,7 +373,12 @@
                 say(error && error.message === 'no-key'
                     ? 'Notifications are not set up on this server yet.'
                     : 'That did not work. Try again.', false);
+            })
+            .finally(function () {
+                inFlight = null;
             });
+
+        return inFlight;
     }
 
     show();

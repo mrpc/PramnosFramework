@@ -68,7 +68,7 @@ function page(src, base = null, attrs = {}, before = () => {}) {
 
     loadScript(SOURCE, window, { source: true });
 
-    return { window, button, state, fetched, sent, send: (data) => message({ data }) };
+    return { window, document, button, state, fetched, sent, send: (data) => message({ data }) };
 }
 
 test('the key and the subscription are fetched from the folder the site is in', async () => {
@@ -228,5 +228,40 @@ test('without a worker at the site\'s address, the page\'s ready one is used', a
     await settle();
 
     // Assert — the subscription from `ready` reached the server
+    assert.deepEqual(fetched, ['https://site.test/app/push/key', 'https://site.test/app/push/subscribe']);
+});
+
+/**
+ * FW-584: the soft prompt and the settings switch are two buttons wired to the same `subscribe()`
+ * — clicked close together (a double click, or both reaching it in the same tick) before the
+ * first resolves, `PushManager.subscribe()` has been observed to answer two different
+ * subscriptions rather than the same one twice, registering a second endpoint for the one
+ * browser. The second click has to reuse the first call's own in-flight work, not start its own.
+ */
+test('two clicks close together subscribe once, not twice', async () => {
+    // Arrange — two buttons, same page, as the soft prompt and the settings switch really are;
+    // the second has to exist before the script runs, which is where it wires every button found
+    let subscribeCalls = 0;
+    const addSecondButton = (window, document) => {
+        const second = document.createElement('button');
+        second.setAttribute('data-push-subscribe', '');
+        document.body.appendChild(second);
+        window.navigator.serviceWorker.ready.then((registration) => {
+            registration.pushManager.subscribe = () => {
+                subscribeCalls += 1;
+
+                return Promise.resolve({ toJSON: () => ({ endpoint: 'https://push.test/1' }) });
+            };
+        });
+    };
+    const { document, fetched } = page('https://site.test/app/assets/js/push.js', null, {}, addSecondButton);
+    await settle();
+
+    // Act — both fire before either settles
+    document.querySelectorAll('[data-push-subscribe]').forEach((one) => one.click());
+    await settle();
+
+    // Assert — one subscribe, one POST, whichever button is asked
+    assert.equal(subscribeCalls, 1);
     assert.deepEqual(fetched, ['https://site.test/app/push/key', 'https://site.test/app/push/subscribe']);
 });
