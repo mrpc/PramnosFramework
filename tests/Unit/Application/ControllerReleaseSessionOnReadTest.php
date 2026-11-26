@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Pramnos\Tests\Unit\Application;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Application\Controller;
 use Pramnos\Logs\Logger;
@@ -53,7 +54,7 @@ class ControllerReleaseSessionOnReadTest extends TestCase
         return new class ($optIn) extends Controller {
             public function __construct(bool $optIn)
             {
-                $this->addAuthAction(['show', 'save', 'oauthcallback']);
+                $this->addAuthAction(['show', 'save', 'oauthcallback', 'search']);
                 $this->addWriteAction('save');
                 $this->addSessionAction('oauthcallback');
                 if ($optIn) {
@@ -69,6 +70,13 @@ class ControllerReleaseSessionOnReadTest extends TestCase
             public function save(): string
             {
                 return 'saved';
+            }
+
+            /** A "read" action that still has something to say when it fails. */
+            public function search(): string
+            {
+                $this->addError('nothing matched that');
+                return 'searched';
             }
 
             /** A GET-only OAuth callback: cannot carry a CSRF token, must still write $_SESSION. */
@@ -99,6 +107,41 @@ class ControllerReleaseSessionOnReadTest extends TestCase
         // Assert
         $this->assertSame('shown', $result);
         $this->assertSame(PHP_SESSION_NONE, session_status(), 'the lock is released, not just untouched');
+    }
+
+    /**
+     * FW-586: a read action that releases the lock, then calls `addError()` anyway — the
+     * exact pattern `addError()`'s own `ensureStarted()` call was written to survive (its
+     * docblock: "an error the user is never shown is worse"). Before FW-586,
+     * `ensureStarted()` could not tell this session (closed by `_releaseSessionLock()`
+     * moments earlier, `session_id()` still set) from one that was genuinely still active,
+     * so the flash was written only into this process's memory and never reached the
+     * session file — gone the moment the request ended, with nothing on either side to
+     * say so.
+     *
+     * Isolated to its own process: unlike the rest of this class, it drives the real
+     * `session_write_close()`/`session_start()` cycle `_releaseSessionLock()` does, which
+     * would otherwise leave the shared session state disturbed for every test after it in
+     * the same run.
+     */
+    #[RunInSeparateProcess]
+    public function testAReadActionThatFlashesAnErrorAfterReleaseStillPersistsIt(): void
+    {
+        // Arrange
+        $controller = $this->controller(optIn: true);
+
+        // Act
+        $result = $controller->exec('search');
+
+        // Assert — addError() reopened the session to flash into it…
+        $this->assertSame('searched', $result);
+        $this->assertSame(PHP_SESSION_ACTIVE, session_status(), 'addError() reopened it to write the flash');
+        // …and as `Application::close()` would, persist it and read it back as the next
+        // request will — not the in-memory copy, which would pass even with the bug.
+        session_write_close();
+        session_start();
+        $this->assertSame(['nothing matched that'], $_SESSION['_errors'] ?? null);
+        unset($_SESSION['_errors']);
     }
 
     /**

@@ -111,7 +111,12 @@ class Base
         // cached, so it was worth checking who actually calls this: all 107 call sites in
         // the framework are controllers flashing before a redirect, none are models on a
         // render path. A page that must stay cacheable should not be flashing.
-        \Pramnos\Http\Session::getInstance()->ensureStarted();
+        //
+        // reopenForWrite(), not ensureStarted(): a controller that opted into
+        // Controller::releaseSessionOnRead() may already have closed the session before
+        // this action ran, for an action outside its declared write actions. ensureStarted()
+        // alone does not reopen it in that case (FW-586) — see reopenForWrite()'s docblock.
+        \Pramnos\Http\Session::getInstance()->reopenForWrite();
         if (isset($_SESSION)) {
             $_SESSION['_errors'] = $this->_errors;
         }
@@ -127,7 +132,7 @@ class Base
     {
         $this->_messages[] = self::flashWords($message);
         // Same reasoning as addError(): a message nobody sees is the worse failure.
-        \Pramnos\Http\Session::getInstance()->ensureStarted();
+        \Pramnos\Http\Session::getInstance()->reopenForWrite();
         if (isset($_SESSION)) {
             $_SESSION['_messages'] = $this->_messages;
         }

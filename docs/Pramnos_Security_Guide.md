@@ -137,6 +137,17 @@ persisted, so every write action submitted afterward failed CSRF verification ag
 compare. `releaseSessionOnRead()` now seeds that token itself before closing the lock, so this
 can't recur on any controller that opts in — nothing to declare for it.
 
+A second is also handled: `addError()`/`addMessage()` — a read action that still has something
+to say on the way out, an invalid search term, a failed lookup, flashing an error before
+redirecting back. `session_id()` survives `session_write_close()`; only `session_status()`
+changes. `Session::ensureStarted()` used to read `session_id()` to decide whether a session
+needed (re)starting, which is correct for a session never started at all but treats one this
+method just closed the same as one still open, and skips reopening it — so the flash was written
+only into this process's copy of `$_SESSION` and never reached the session file (FW-586).
+`addError()`/`addMessage()` now call `Session::reopenForWrite()` instead, which checks
+`session_status()` directly, so this one still gets through: nothing to declare for it either,
+the same as the CSRF token.
+
 **Some session-writing actions cannot be declared a write action at all.** An OAuth callback a
 third-party provider redirects back to with a `GET` has no CSRF token to carry — there is no form
 submission to attach one to — and still has to write the exchanged tokens or flow state into the

@@ -228,6 +228,60 @@ class SessionTest extends \PHPUnit\Framework\TestCase
     }
 
     /**
+     * `reopenForWrite()` — FW-586. `Controller::releaseSessionOnRead()` closes the session
+     * mid-request with `session_write_close()` for a read action; `session_id()` survives
+     * that close, only `session_status()` changes. `start()`'s own guard (`session_id() ==
+     * ''`) therefore treats "closed" the same as "already active" and skips reopening it, so
+     * a flash written through the ordinary `ensureStarted()` path afterward is silently lost
+     * — present in `$_SESSION` in this process, absent from the session file once a fresh
+     * process reads it back. `reopenForWrite()` checks `session_status()` directly instead,
+     * so it tells the two apart and the write survives.
+     */
+    public function testReopenForWriteSurvivesASessionClosedMidRequest()
+    {
+        // Arrange — start it, then close it exactly as _releaseSessionLock() does.
+        $this->_object->start();
+        session_write_close();
+        $this->assertSame(PHP_SESSION_NONE, session_status(), 'closed, same as a released read action');
+
+        // Act — the operation addError()/addMessage() rely on to survive a redirect.
+        $this->_object->reopenForWrite();
+        $this->assertSame(PHP_SESSION_ACTIVE, session_status(), 'reopened, not left closed');
+        $_SESSION['_errors'] = ['it broke'];
+        session_write_close();
+
+        // Assert — read it back as the next request would, not the in-memory copy.
+        session_start();
+        $this->assertSame(
+            ['it broke'],
+            $_SESSION['_errors'] ?? null,
+            'the flash must be on disk, not only in this process\'s memory'
+        );
+    }
+
+    /**
+     * The bug `reopenForWrite()` fixes: going through `ensureStarted()` alone (what
+     * `addError()`/`addMessage()` called before FW-586) does not reopen a session closed
+     * mid-request, so the write never reaches the session file.
+     */
+    public function testEnsureStartedAloneDoesNotSurviveASessionClosedMidRequest()
+    {
+        // Arrange — same setup as above: started, then closed mid-request.
+        $this->_object->start();
+        session_write_close();
+
+        // Act — the old path.
+        $this->_object->ensureStarted();
+        $this->assertSame(PHP_SESSION_NONE, session_status(), 'ensureStarted() alone leaves it closed');
+        $_SESSION['_errors'] = ['it broke'];
+        session_write_close();
+
+        // Assert — never persisted: this is the data loss FW-586 reports.
+        session_start();
+        $this->assertArrayNotHasKey('_errors', $_SESSION);
+    }
+
+    /**
      * Test manual deletion of the URL snapshot.
      */
     public function testDeleteSnapshot()

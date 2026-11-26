@@ -266,6 +266,34 @@ class Session extends Base
     }
 
     /**
+     * Reopen the session for a write that must persist — `Base::addError()`/`addMessage()`
+     * call this instead of {@see ensureStarted()}.
+     *
+     * `Controller::releaseSessionOnRead()` closes the session mid-request with
+     * `session_write_close()` for an action outside its declared write actions, to free the
+     * file lock early. `session_id()` survives that close — only `session_status()` changes
+     * to `PHP_SESSION_NONE` — so {@see start()}'s own guard (`session_id() == ''`), written
+     * for a session that was never started at all, treats "closed" the same as "already
+     * active" and skips `session_start()`. A flash written into `$_SESSION` after that is
+     * never persisted and PHP raises nothing for it — the exact silent loss `addError()`'s
+     * `ensureStarted()` call exists to prevent, confirmed empirically (FW-586): the message
+     * was present in `$_SESSION` right up to `Application::close()`'s own
+     * `session_write_close()`, absent from the session file on disk afterward.
+     *
+     * This checks `session_status()` directly, which does distinguish the two, instead of
+     * going through `start()`'s id-based guard.
+     *
+     * @return void
+     */
+    public function reopenForWrite(): void
+    {
+        $this->ensureStarted();
+        if (session_status() !== PHP_SESSION_ACTIVE && !headers_sent()) {
+            @session_start();
+        }
+    }
+
+    /**
      * Is the visitor already carrying a session, or would starting one create it?
      *
      * The distinction is what makes lazy mode safe. A request arriving with a session
