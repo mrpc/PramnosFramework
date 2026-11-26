@@ -332,6 +332,7 @@ class PushLogTest extends BaseTestCase
                 ['total' => 0, 'delivered' => 0, 'gone' => 0, 'refused' => 0, 'failed' => 0, 'opened' => 0, 'dismissed' => 0],
                 Log::stats()
             );
+            $this->assertSame('unproven', Log::health($this->userId));
             $this->assertSame(0, Log::prune(90));
         } finally {
             $this->runMigrations([CreatePushLogTable::class], $this->db);
@@ -604,6 +605,124 @@ class PushLogTest extends BaseTestCase
         $this->assertSame(['delivered' => 2, 'opened' => 1, 'dismissed' => 0], array_intersect_key($byHash[$a], ['delivered' => 0, 'opened' => 0, 'dismissed' => 0]));
         $this->assertSame(['delivered' => 1, 'opened' => 0, 'dismissed' => 1], array_intersect_key($byHash[$b], ['delivered' => 0, 'opened' => 0, 'dismissed' => 0]));
         $this->db->queryBuilder()->table('pramnos.pushlog')->where('pushid', $theirs)->delete();
+    }
+
+    /**
+     * `health()` (FW-583): `'ok'` once anything delivered in the window was opened or dismissed —
+     * a newer push nobody has looked at yet does not erase that the account's push does arrive
+     * and does get seen.
+     */
+    public function testHealthIsOkWhenAnythingWasOpenedOrDismissed(): void
+    {
+        // Arrange — one opened, one still untouched
+        $hash = str_repeat('j', 64);
+        $id1  = Log::reserve($this->userId, $hash, ['title' => '1']);
+        Log::complete($id1, 201);
+        Log::opened($id1);
+        $id2 = Log::reserve($this->userId, $hash, ['title' => '2']);
+        Log::complete($id2, 201);
+
+        // Act & Assert
+        $this->assertSame('ok', Log::health($this->userId));
+    }
+
+    /**
+     * `'unproven'`: nothing delivered at all, and — the case `openRate()` has no opinion on
+     * either — delivered but too few in the window to tell a silently-blocked device apart from
+     * one simply not reached yet ({@see \Pramnos\Push\Log::HEALTH_MIN_DELIVERED}).
+     */
+    public function testHealthIsUnprovenWithNothingOrTooLittleDelivered(): void
+    {
+        // Act & Assert — nobody subscribed at all
+        $this->assertSame('unproven', Log::health($this->userId));
+
+        // Arrange — one delivered, unacknowledged, old enough on its own — still below the floor
+        $this->oldDelivery(str_repeat('k', 64), Log::HEALTH_GRACE_DAYS + 1);
+
+        // Act & Assert
+        $this->assertSame('unproven', Log::health($this->userId));
+    }
+
+    /**
+     * `'unproven'`, not `'suspect'`: enough was delivered, but all of it recent — somebody who has
+     * not looked at their phone in the last hour is not an account whose push never arrives.
+     */
+    public function testHealthStaysUnprovenWithinTheGracePeriod(): void
+    {
+        // Arrange — enough delivered, none acknowledged, none old enough
+        $hash = str_repeat('l', 64);
+
+        for ($i = 0; $i < Log::HEALTH_MIN_DELIVERED; $i++) {
+            $this->oldDelivery($hash, 0);
+        }
+
+        // Act & Assert
+        $this->assertSame('unproven', Log::health($this->userId));
+    }
+
+    /**
+     * `'suspect'`: enough delivered, old enough, and not one of them ever opened or dismissed —
+     * the FCM-accepts-it-but-the-device-never-shows-it shape an OS-level notification block
+     * leaves behind, invisible to the web `Notification` API itself.
+     */
+    public function testHealthIsSuspectPastTheGracePeriodWithNothingEverAcknowledged(): void
+    {
+        // Arrange — enough delivered, none acknowledged, all past the grace period
+        $hash = str_repeat('m', 64);
+
+        for ($i = 0; $i < Log::HEALTH_MIN_DELIVERED; $i++) {
+            $this->oldDelivery($hash, Log::HEALTH_GRACE_DAYS + 1);
+        }
+
+        // Act & Assert
+        $this->assertSame('suspect', Log::health($this->userId));
+    }
+
+    /**
+     * Without the migration this needs ({@see AddOpenedDismissedToPushlog}), `health()` answers
+     * `'unproven'` rather than guessing from a column it cannot read — the same defensive shape
+     * `stats()` and `openRate()` already use.
+     */
+    public function testHealthIsUnprovenWithoutTheOpenedDismissedColumns(): void
+    {
+        // Arrange — delivered plenty, long enough ago to be 'suspect' if the column were there
+        $hash = str_repeat('n', 64);
+
+        for ($i = 0; $i < Log::HEALTH_MIN_DELIVERED; $i++) {
+            $this->oldDelivery($hash, Log::HEALTH_GRACE_DAYS + 1);
+        }
+
+        $app = $this->getMockBuilder(Application::class)->disableOriginalConstructor()->getMock();
+        $app->database = $this->db;
+        $migration     = new AddOpenedDismissedToPushlog($app);
+        $migration->down();
+
+        try {
+            // Act & Assert
+            $this->assertSame('unproven', Log::health($this->userId));
+        } finally {
+            $migration->up();
+        }
+    }
+
+    /**
+     * A delivered, unacknowledged row `$daysAgo` days old — the fixture {@see Log::health()}'s
+     * grace-period tests need, since `Log::reserve()`/`complete()` always stamp `sent` as now.
+     */
+    private function oldDelivery(string $hash, int $daysAgo): void
+    {
+        $this->db->queryBuilder()->table('pramnos.pushlog')->insert([
+            'userid' => $this->userId,
+            'endpoint_hash' => $hash,
+            'notification' => '',
+            'title' => 'x',
+            'body' => '',
+            'url' => '',
+            'tag' => '',
+            'status' => 201,
+            'error' => '',
+            'sent' => date('Y-m-d H:i:s', time() - $daysAgo * 86400),
+        ]);
     }
 
     /**

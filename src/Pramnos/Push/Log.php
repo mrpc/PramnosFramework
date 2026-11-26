@@ -469,6 +469,74 @@ class Log
         }
     }
 
+    /** Delivered pushes {@see health()} needs in the window before it answers anything but
+     * `'unproven'` — too few to tell a silently-blocked device apart from one simply not reached
+     * yet. */
+    public const HEALTH_MIN_DELIVERED = 3;
+
+    /** How long a streak of delivered-but-never-opened-or-dismissed pushes has to run before
+     * {@see health()} calls it `'suspect'` — somebody who has not looked at their phone in the
+     * last hour is not the same as an account whose notifications never arrive at all. */
+    public const HEALTH_GRACE_DAYS = 3;
+
+    /**
+     * One account's push health (FW-583): `'ok'` — at least one delivered push in the window was
+     * opened or dismissed; `'suspect'` — {@see HEALTH_MIN_DELIVERED} or more were delivered, the
+     * oldest of them at least {@see HEALTH_GRACE_DAYS} old, and not one was ever opened or
+     * dismissed; `'unproven'` — too little, or too recent, to say either way (including an
+     * installation that has not run the migration this needs at all).
+     *
+     * The FCM/push service says `2xx` and still nothing is ever opened or dismissed is exactly
+     * what an OS-level notification block looks like from here — Android lets a person silence an
+     * app's notifications entirely while the web `Notification` API inside the page has no way to
+     * see that it happened, so a server-side read of "delivered but never acknowledged, for a
+     * while" is the only way anything notices at all.
+     *
+     * A single account's verdict; {@see openRate()} is the same underlying numbers, by device,
+     * with no verdict attached.
+     */
+    public static function health(int $userId, int $days = 14): string
+    {
+        try {
+            $db = \Pramnos\Framework\Factory::getDatabase();
+
+            if (!$db->schema()->hasColumn('pramnos.pushlog', 'opened_at')) {
+                return 'unproven';
+            }
+
+            $rows = $db->queryBuilder()->table('pramnos.pushlog')
+                ->select(['sent', 'opened_at', 'dismissed_at'])
+                ->where('userid', $userId)->where('status', '>=', 200)->where('status', '<', 300)
+                ->where('sent', '>=', self::instant(time() - max(1, $days) * 86400))
+                ->getAllOrFail();
+        } catch (\Throwable) {
+            return 'unproven';
+        }
+
+        if ($rows === []) {
+            return 'unproven';
+        }
+
+        $unacknowledged = array_values(array_filter(
+            $rows,
+            static fn (array $row): bool => ($row['opened_at'] ?? null) === null && ($row['dismissed_at'] ?? null) === null
+        ));
+
+        // At least one of this window's deliveries was opened or dismissed: proof the device
+        // itself works, whatever the rest did.
+        if (count($unacknowledged) < count($rows)) {
+            return 'ok';
+        }
+
+        if (count($rows) < self::HEALTH_MIN_DELIVERED) {
+            return 'unproven';
+        }
+
+        $oldest = min(array_map(static fn (array $row): int => self::sentAt($row), $unacknowledged));
+
+        return (time() - $oldest) >= self::HEALTH_GRACE_DAYS * 86400 ? 'suspect' : 'unproven';
+    }
+
     /**
      * One account's open rate, by device — each browser's `endpoint_hash`, how many pushes it
      * was delivered and how many of those it ever opened or dismissed, since the migration ran

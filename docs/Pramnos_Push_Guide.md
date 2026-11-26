@@ -338,7 +338,18 @@ Log::find($pushId);                                 // one attempt, or null
 Log::outcome($row);                                 // kind, label, and what it means
 Log::openRate($userId);                             // one account's own, by device: delivered/opened/dismissed
 Log::deviceSummary();                               // every account's, grouped once: delivered/opened/dismissed/open_rate
+Log::health($userId);                               // one account's verdict: 'ok' | 'suspect' | 'unproven'
 ```
+
+**`Log::health()` (FW-583)** is `openRate()`'s numbers with a verdict already worked out, for the
+one question a support screen or a banner actually asks: `'ok'` once anything delivered in the
+window was opened or dismissed; `'suspect'` once enough was delivered — `Log::HEALTH_MIN_DELIVERED`
+or more — the oldest of them at least `Log::HEALTH_GRACE_DAYS` old, and not one ever opened or
+dismissed; `'unproven'` otherwise, including an installation that has not run the migration this
+needs. `'suspect'` is the shape an OS-level notification block leaves: the push service answers
+`2xx` and the device still never shows anything, which the web `Notification` API inside the page
+has no way to see for itself — a server-side read of "delivered, never acknowledged, for a while"
+is the only thing that notices at all.
 
 The list carries two more things once opened/dismissed are tracked (see
 [above](#opened-dismissed-and-the-hold-unopened-rule)): each row's own **Opened**/**Dismissed**
