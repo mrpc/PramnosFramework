@@ -218,6 +218,12 @@ to add one to an existing project. The stub handles `push`,
 `notificationclick` and `pushsubscriptionchange` — the last of which is the one
 people forget, and it is covered below.
 
+A worker of your own that has none of these yet can `importScripts('/assets/js/pf-push-worker.js')`
+at its top instead of writing them — the shared worker handles all three, and reports
+`notificationclick`/`notificationclose` back for FW-495's hold-unopened rule the same way. `push:setup`'s
+own check (`Pramnos\Push\ServiceWorker::missing()`) reads what a worker `importScripts()`s too, so a
+project using it this way is not told it is missing handlers that live in the imported file (FW-582).
+
 ### 4. The page that asks
 
 `init` writes `www/assets/js/push.js` beside the worker, and the scaffolded themes carry two

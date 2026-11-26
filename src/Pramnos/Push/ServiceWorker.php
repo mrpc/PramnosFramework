@@ -90,6 +90,11 @@ class ServiceWorker
             return static::HANDLERS;
         }
 
+        // A worker that only `importScripts('/assets/js/pf-push-worker.js')` has its handlers in
+        // that file, not this one (FW-582) — read alongside it, so it is not reported as missing
+        // what it only imports.
+        $source .= static::imported($path, $source);
+
         $missing = [];
 
         foreach (static::HANDLERS as $handler => $why) {
@@ -107,6 +112,46 @@ class ServiceWorker
         }
 
         return $missing;
+    }
+
+    /**
+     * The content of every local file this worker pulls in with `importScripts()`, concatenated.
+     *
+     * A root-relative path (`/assets/js/pf-push-worker.js`, the shipped shared worker's own) and a
+     * relative one both resolve against the worker's own directory — where every scaffolded worker
+     * sits directly in the web root, so that is also the root an absolute import means. A remote
+     * URL (`https://…`) is left alone; this is a local file check, not a fetcher. A file that
+     * cannot be found or read contributes nothing — `importScripts()` is the application's own
+     * choice of what to pull in, not something the framework can be certain exists.
+     */
+    protected static function imported(string $workerPath, string $source): string
+    {
+        if (preg_match_all('~importScripts\s*\(([^)]*)\)~', $source, $calls) === 0) {
+            return '';
+        }
+
+        $base = dirname($workerPath);
+        $out  = '';
+
+        foreach ($calls[1] as $args) {
+            if (preg_match_all('~[\'"]([^\'"]+)[\'"]~', $args, $paths) === 0) {
+                continue;
+            }
+
+            foreach ($paths[1] as $importPath) {
+                if (str_contains($importPath, '://')) {
+                    continue;
+                }
+
+                $content = @file_get_contents($base . DIRECTORY_SEPARATOR . ltrim($importPath, '/'));
+
+                if ($content !== false) {
+                    $out .= "\n" . $content;
+                }
+            }
+        }
+
+        return $out;
     }
 
     /** Can this installation receive a push at all? */

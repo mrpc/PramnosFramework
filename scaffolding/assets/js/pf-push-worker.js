@@ -22,6 +22,11 @@
  *
  * A worker that has its own handlers (the scaffolded `sw.js` has) does not import this, and
  * should report the same way if it wants FW-495's hold-unopened rule to see its own pushes.
+ *
+ * `pushsubscriptionchange` re-subscribes and tells the server, the same way the scaffolded
+ * `sw.js` does (FW-582): a browser rotates a subscription's keys without asking, with no page
+ * open to notice and resubscribe itself, and every push to the old endpoint then comes back 410
+ * until the row is deleted — silently, for good.
  */
 /* global self, clients */
 'use strict';
@@ -99,4 +104,29 @@ self.addEventListener('notificationclick', (event) => {
 
 self.addEventListener('notificationclose', (event) => {
     event.waitUntil(reportPush('dismissed', event.notification));
+});
+
+// FW-582: the browser rotated the subscription without asking — not an error, and the page that
+// would normally re-subscribe may never be opened again. Re-subscribing here, with no page and no
+// CSRF token to read, is what `Push::fromThisSite()` accepts `Sec-Fetch-Site: same-origin` for —
+// the browser sets that header itself on this fetch, and a page cannot.
+self.addEventListener('pushsubscriptionchange', (event) => {
+    event.waitUntil((async () => {
+        try {
+            const response = await fetch(new URL('push/key', self.registration.scope).href);
+            const { publicKey } = await response.json();
+            const subscription = await self.registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: publicKey,
+            });
+            await fetch(new URL('push/subscribe', self.registration.scope).href, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(subscription.toJSON()),
+            });
+        } catch (e) {
+            // Nothing useful to do from a worker with no page: the next visit re-subscribes.
+        }
+    })());
 });

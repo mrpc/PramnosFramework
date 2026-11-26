@@ -19,8 +19,8 @@ const vm       = require('node:vm');
 
 const SOURCE = fs.readFileSync(path.join(__dirname, '..', '..', 'scaffolding', 'assets', 'js', 'pf-push-worker.js'), 'utf8');
 
-/** The worker, with the windows open now. */
-function worker(open = []) {
+/** The worker, with the windows open now, and a fake `fetch`/`pushManager.subscribe` for the push-subscription-change tests. */
+function worker(open = [], { fetch = async () => ({ ok: true, json: async () => ({}) }), subscribe = async () => ({ toJSON: () => ({}) }) } = {}) {
     const listeners = {};
     const shown = [];
     const opened = [];
@@ -31,11 +31,12 @@ function worker(open = []) {
             showNotification: async (title, options) => { shown.push({ title, options }); },
             // The ones shown under a tag, each closable.
             getNotifications: async ({ tag }) => shown.filter((one) => one.options.tag === tag).map((one) => ({ close: () => closed.push(one.options.tag) })),
+            pushManager: { subscribe },
         },
         addEventListener: (type, fn) => { listeners[type] = fn; },
     };
     const clients = { matchAll: async () => open, openWindow: async (url) => { opened.push(url); } };
-    vm.runInNewContext(SOURCE, { self, clients, URL });
+    vm.runInNewContext(SOURCE, { self, clients, URL, fetch });
 
     /** Fire an event and wait for what it waits on. */
     async function fire(type, event) {
@@ -168,4 +169,49 @@ test('a push quiet if open plays the system\'s sound when no page is open', asyn
     assert.equal(open.shown[0].options.silent, true, 'a page open plays its own');
     assert.equal(none.shown[0].options.silent, false, 'no page: the system\'s sound');
     assert.equal(always.shown[0].options.silent, true);
+});
+
+/**
+ * FW-582: the browser rotated the subscription without asking — the worker re-fetches the VAPID
+ * key, subscribes again, and posts the new subscription to `push/subscribe`, with no page open and
+ * no CSRF token to read (the browser's own `Sec-Fetch-Site: same-origin` is what the server
+ * accepts instead — nothing this worker has to set itself).
+ */
+test('pushsubscriptionchange re-subscribes and posts the new one to the server', async () => {
+    // Arrange
+    const calls = [];
+    const w = worker([], {
+        fetch: async (url, init) => {
+            calls.push({ url: String(url), init });
+
+            return String(url).endsWith('/push/key')
+                ? { ok: true, json: async () => ({ publicKey: 'server-key' }) }
+                : { ok: true };
+        },
+        subscribe: async (options) => ({ toJSON: () => ({ endpoint: 'https://push.example/new', options }) }),
+    });
+
+    // Act
+    await w.fire('pushsubscriptionchange', {});
+
+    // Assert
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].url, 'https://app.test/push/key', 'resolved against this worker\'s own scope');
+    assert.equal(calls[1].url, 'https://app.test/push/subscribe');
+    assert.equal(calls[1].init.method, 'POST');
+    assert.equal(calls[1].init.credentials, 'include');
+    assert.deepEqual(plain(JSON.parse(calls[1].init.body)).endpoint, 'https://push.example/new');
+});
+
+/**
+ * No page is listening for the outcome, so a failure here — offline, permission revoked, the
+ * server down — has nobody to tell: it is swallowed rather than becoming an unhandled rejection
+ * in a context with no console anybody reads.
+ */
+test('pushsubscriptionchange fails quietly when nothing can be reached', async () => {
+    // Arrange
+    const w = worker([], { fetch: async () => { throw new Error('offline'); } });
+
+    // Act, Assert — the event's own waitUntil promise resolves rather than rejecting
+    await assert.doesNotReject(w.fire('pushsubscriptionchange', {}));
 });

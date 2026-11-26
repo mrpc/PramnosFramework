@@ -296,15 +296,96 @@ class ServiceWorkerTest extends TestCase
     }
 
     /**
-     * Run the check over a worker with this source.
+     * `pf-push-worker.js`, the shared worker a project without its own handlers imports, has all
+     * three — same assertion as the stub above, so the file and the check cannot drift apart.
+     */
+    public function testTheSharedImportedWorkerHasAllThree(): void
+    {
+        // Arrange
+        $shared = dirname(__DIR__, 3) . '/scaffolding/assets/js/pf-push-worker.js';
+
+        // Act
+        $missing = $this->missingFor("importScripts('/assets/js/pf-push-worker.js');", ['assets/js/pf-push-worker.js' => (string) file_get_contents($shared)]);
+
+        // Assert
+        $this->assertSame([], $missing, 'a project that only imports the shared worker is not missing anything it provides');
+    }
+
+    /**
+     * A worker that only `importScripts()`s another file (FW-582) has that file's handlers read
+     * too — a root-relative path, resolved against the worker's own directory, which is also the
+     * web root every scaffolded worker sits in directly.
+     */
+    public function testAHandlerBehindAnImportScriptsCallIsNotReportedMissing(): void
+    {
+        // Arrange
+        $missing = $this->missingFor(
+            "importScripts('/assets/js/pf-push-worker.js');\nself.addEventListener('fetch', () => {});",
+            ['assets/js/pf-push-worker.js' => "self.addEventListener('push', () => {});\nself.addEventListener('notificationclick', () => {});\nself.addEventListener('pushsubscriptionchange', () => {});"]
+        );
+
+        // Assert
+        $this->assertSame([], $missing);
+    }
+
+    /**
+     * An import that names a file which does not exist contributes nothing — `importScripts()` is
+     * the application's own choice, not something the framework can be sure resolves — and the
+     * worker's own handlers are still read correctly around it.
+     */
+    public function testAnImportOfAFileThatDoesNotExistContributesNothing(): void
+    {
+        // Arrange
+        $missing = $this->missingFor("importScripts('/assets/js/no-such-file.js');\nself.addEventListener('push', () => {});");
+
+        // Assert
+        $this->assertSame(['notificationclick', 'pushsubscriptionchange'], array_keys($missing));
+    }
+
+    /**
+     * A remote `importScripts()` (a CDN, another origin) is left alone — this is a local file
+     * check, not a fetcher, and fetching it would be a surprising thing for a unit test's check to
+     * do over the network.
+     */
+    public function testARemoteImportIsNeverFetched(): void
+    {
+        // Arrange
+        $missing = $this->missingFor("importScripts('https://cdn.example.test/worker-lib.js');\nself.addEventListener('push', () => {});");
+
+        // Assert
+        $this->assertSame(['notificationclick', 'pushsubscriptionchange'], array_keys($missing));
+    }
+
+    /**
+     * An `importScripts()` call with no string literal in it — built from a variable, or left
+     * empty — names nothing to read, and is skipped rather than matched against as if it were one.
+     */
+    public function testAnImportScriptsCallWithNoQuotedPathIsSkipped(): void
+    {
+        // Arrange
+        $missing = $this->missingFor("importScripts(scriptUrl);\nself.addEventListener('push', () => {});");
+
+        // Assert
+        $this->assertSame(['notificationclick', 'pushsubscriptionchange'], array_keys($missing));
+    }
+
+    /**
+     * Run the check over a worker with this source, and whatever files (relative to the web root)
+     * it `importScripts()`s.
      *
+     * @param array<string, string> $imported path relative to the web root => its content
      * @return array<string, string>
      */
-    private function missingFor(string $source): array
+    private function missingFor(string $source, array $imported = []): array
     {
         $root = sys_get_temp_dir() . '/sw-' . bin2hex(random_bytes(5));
         mkdir($root . '/www', 0700, true);
         file_put_contents($root . '/www/sw.js', $source);
+
+        foreach ($imported as $path => $content) {
+            @mkdir(dirname($root . '/www/' . $path), 0700, true);
+            file_put_contents($root . '/www/' . $path, $content);
+        }
 
         try {
             return $this->missingIn($root);
