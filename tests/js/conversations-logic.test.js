@@ -503,6 +503,13 @@ test('emoji are found by name: the team\'s own, shortcodes, then English names',
     // Assert
     assert.equal(CATEGORIES.length, 8);
     assert.ok(CATEGORIES.every((c) => c.emoji.every(([e, name]) => e && name)), 'every emoji has a name');
+    // A repeated emoji inside the same category gives Svelte's keyed {#each} two elements with
+    // the same key; the tab for that category then stops reconciling (FW-587) — every category's
+    // own list must hold each emoji once.
+    assert.ok(
+        CATEGORIES.every((c) => new Set(c.emoji.map(([e]) => e)).size === c.emoji.length),
+        'no category repeats one of its own emoji',
+    );
     assert.deepEqual(fire.slice(0, 2), [{ emoji: ':firefly:', name: 'firefly', src: '/e?name=firefly' }, { emoji: '🔥', name: 'fire' }]);
     assert.equal(new Set(fire.map((f) => f.emoji)).size, fire.length, 'each once');
     assert.deepEqual(kappa, [{ emoji: ':kappa:', name: 'kappa', src: '/e?name=kappa' }], 'the picture, not the smirk');
