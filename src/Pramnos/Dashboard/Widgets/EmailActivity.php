@@ -70,8 +70,8 @@ final class EmailActivity extends Widget
                 $figures['failure_rate'] !== null ? number_format($rate * 100, 1) . '%' : '',
                 (string) array_key_first($figures['failed_by_module']),
             ])),
-                state: $rate >= 0.05 ? StatTile::CRITICAL : ($failed > 0 ? StatTile::WARNING : null)),
-            StatTile::render(Figures::words('Queued'), number_format($figures['queued'])),
+                link: $this->link(), state: $rate >= 0.05 ? StatTile::CRITICAL : ($failed > 0 ? StatTile::WARNING : null)),
+            StatTile::render(Figures::words('Queued'), number_format($figures['queued']), link: $this->link()),
         ];
 
         $tracked = static fn () => $db->queryBuilder()->table('pramnos.emailtracking')->where('sent_at', '>=', $from)->where('sent_at', '<=', $to);

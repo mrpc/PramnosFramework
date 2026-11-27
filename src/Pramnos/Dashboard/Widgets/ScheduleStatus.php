@@ -63,8 +63,8 @@ final class ScheduleStatus extends Widget
 
         return StatTile::grid([
             StatTile::render(Figures::words('Late'), (string) $late, link: $this->link(), state: $late > 0 ? StatTile::CRITICAL : null),
-            StatTile::render(Figures::words('Last run failed'), (string) $failed, state: $failed > 0 ? StatTile::CRITICAL : null),
-            StatTile::render(Figures::words('Running now'), (string) (int) ($counts['running'] ?? 0)),
+            StatTile::render(Figures::words('Last run failed'), (string) $failed, link: $this->link(), state: $failed > 0 ? StatTile::CRITICAL : null),
+            StatTile::render(Figures::words('Running now'), (string) (int) ($counts['running'] ?? 0), link: $this->link()),
         ]);
     }
 }
