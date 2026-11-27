@@ -384,6 +384,33 @@ application container and a daemon container that share only `var/` do not see e
 lock unless the first argument points both at the shared directory, as in the third line
 above.
 
+### A command task's own lock, under a supervised `work`
+
+A `command` task's `withoutOverlapping()` lock, above, belongs to the *scheduler* — it is
+not the same lock a command checks of itself if it also calls `CommandBase::beginJob()`
+to guard against being run directly from the shell, outside the scheduler entirely. Most
+commands that are ever run both ways do exactly that, and it is fine for them to: the two
+locks are independent, under different names and paths, so one command checks both and
+either can refuse it.
+
+What is not fine is running that command task **under a `work` process that is itself
+supervised** by `daemons:start`. The orchestrator spawns a supervised worker with
+`PRAMNOS_JOB_LOCK_FILE` set in its environment, so the worker's own
+`resolvedJobLockFilePath()` agrees with the path the orchestrator tracks it under — see
+`CommandBase::resolvedJobLockFilePath()`'s own docblock for why that env var exists at all.
+`work` is exactly such a worker, and every command task it dispatches is a **new process**,
+started with `popen()`/`exec()` — which inherit `work`'s whole environment, that variable
+included. A command task's own `beginJob()` then resolves its lock to `work`'s lock file,
+not its own, and finds it held — because `work`, the thing asking, is also the thing
+holding it. Not occasionally, under real overlap: on every single invocation, since the
+holder is always the asker.
+
+This is handled for every command task without anything to opt into: both `runShellCommand()`
+and `spawnDetached()` clear `PRAMNOS_JOB_LOCK_FILE` for the child alone, before the real
+command — the parent `work` process's own environment and its own lock checks are
+untouched. A command run directly from the shell, not through the scheduler, was never
+affected: nothing set that variable for it to inherit.
+
 ### Replacing a framework task
 
 ```php

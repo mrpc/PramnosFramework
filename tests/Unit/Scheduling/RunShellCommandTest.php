@@ -98,4 +98,35 @@ class RunShellCommandTest extends TestCase
         // Assert
         $this->assertSame(127, $status);
     }
+
+    /**
+     * FW-589: `popen()` inherits this process's whole environment — including
+     * `CommandBase::LOCK_FILE_ENV`, set here only because the daemon orchestrator
+     * put it there for *this* process (`work`, spawned under `daemons:start`), to
+     * resolve its own job lock. A scheduled command is a job of its own; inheriting
+     * that variable made its own `beginJob()` resolve to the worker's lock file
+     * instead, found always held — by the worker asking. `runShellCommand()` must
+     * clear it for the child alone, so a command spawned under a supervised `work`
+     * sees the variable gone, not carried over.
+     */
+    public function testTheChildDoesNotInheritTheSupervisorsJobLockEnvVar(): void
+    {
+        // Arrange — simulate running under a daemon-orchestrator-spawned `work`
+        $envVar = \Pramnos\Console\CommandBase::LOCK_FILE_ENV;
+        putenv($envVar . '=/tmp/pramnos-work.lock');
+
+        try {
+            // Act
+            $this->runCommand('echo "[$' . $envVar . ']" > ' . escapeshellarg(sys_get_temp_dir() . '/fw589-child-env.txt'));
+            $seenByChild = trim((string) @file_get_contents(sys_get_temp_dir() . '/fw589-child-env.txt'));
+
+            // Assert — this process still has it (the worker's own checks still need it)...
+            $this->assertSame('/tmp/pramnos-work.lock', getenv($envVar), 'the parent process must keep seeing its own lock env var');
+            // ...but the spawned child must not.
+            $this->assertSame('[]', $seenByChild, 'the child inherited the supervisor\'s job lock env var');
+        } finally {
+            putenv($envVar);
+            @unlink(sys_get_temp_dir() . '/fw589-child-env.txt');
+        }
+    }
 }

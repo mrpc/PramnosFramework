@@ -609,7 +609,10 @@ class ScheduledTask
     protected function spawnDetached(string $line): void
     {
         $setsid = is_executable('/usr/bin/setsid') ? '/usr/bin/setsid ' : (is_executable('/bin/setsid') ? '/bin/setsid ' : '');
-        exec($setsid . $line . ' > /dev/null 2>&1 &');
+        // Same reason as runShellCommand(): a detached command must not inherit this
+        // process's own CommandBase::LOCK_FILE_ENV, or its own withoutOverlapping()
+        // job lock resolves to whatever supervised this process instead of its own.
+        exec('unset ' . \Pramnos\Console\CommandBase::LOCK_FILE_ENV . '; ' . $setsid . $line . ' > /dev/null 2>&1 &');
     }
 
     /**
@@ -869,7 +872,22 @@ class ScheduledTask
     {
         $this->lastOutput = '';
 
-        $handle = popen($command . ' 2>&1', 'r');
+        // popen() inherits this process's whole environment, including
+        // CommandBase::LOCK_FILE_ENV — set on *this* process only when the
+        // daemon orchestrator spawned it (`work`, under `daemons:start`), so
+        // that its own job lock matches the path the orchestrator supervises
+        // under. A scheduled command is a job of its own, not a continuation
+        // of the worker dispatching it, but without this it inherits that
+        // same env var and resolves its lock to the *worker's* lock file —
+        // which is always held, since the worker holding it is the very
+        // process asking. Every `withoutOverlapping()` command task run
+        // through a supervised `work` process then reports "already running"
+        // on every single invocation, never once reaching `execute()`.
+        // Reported from a live installation: `billing:run` and
+        // `reminders:send`, both `withoutOverlapping()`, had failed this way
+        // on every scheduled run since the day `work` started running under
+        // `daemons:start` — their own distinct lock files never came into it.
+        $handle = popen('unset ' . \Pramnos\Console\CommandBase::LOCK_FILE_ENV . '; ' . $command . ' 2>&1', 'r');
 
         // @codeCoverageIgnoreStart
         // `popen()` raises rather than answering false for a command it will not
